@@ -1,0 +1,24 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.convexityos/convexity",
+  "description": "Cited market data as MCP tools: quotes, price history, the Convexity Score, screener, company data, and the key owner's own portfolio book.",
+  "repository": {
+    "url": "https://github.com/convexityos/convexity-api",
+    "source": "github"
+  },
+  "version": "1.0.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://convexityos.com/api/v1/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer API key minted in the Convexity terminal (Settings > Developer). Format: Bearer cnvxty_live_...",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

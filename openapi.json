@@ -1,0 +1,5659 @@
+{
+  "components": {
+    "schemas": {
+      "BatchQuoteRequest": {
+        "description": "Inbound payload for the batch endpoint.\n\nCap is 25 -- matches Vexa's free-tier watchlist limit. Symbols are\nupper-cased + de-duplicated server-side; the client doesn't need to\npre-normalize.\n\nNote: ``min_length=1`` is enforced via Pydantic, but the 25 cap is\nenforced in the route handler so we can return 400 (spec) instead\nof Pydantic's default 422.",
+        "properties": {
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Symbols",
+            "type": "array"
+          }
+        },
+        "required": [
+          "symbols"
+        ],
+        "title": "BatchQuoteRequest",
+        "type": "object"
+      },
+      "BatchQuoteResponse": {
+        "description": "Body of the batch endpoint's ``DataEnvelope.data``.\n\nMap keyed by symbol. Symbols that fail to resolve get a payload with\n``price=None``; the entry is still present so the client can render\na placeholder cell without a separate \"missing\" lookup.",
+        "properties": {
+          "quotes": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/QuoteData"
+            },
+            "title": "Quotes",
+            "type": "object"
+          }
+        },
+        "required": [
+          "quotes"
+        ],
+        "title": "BatchQuoteResponse",
+        "type": "object"
+      },
+      "ConvexityScoreDTO": {
+        "description": "Per-ticker convexity score row.\n\nv3.0 populates ``ridge_score`` and ``ridge_score_pct`` and leaves the\n``spy`` / ``sector`` flavors all-null. v1/v2 historical rows (queryable\nvia ``?formula_version=v2``) populate the flavor fields and leave the\nRidge fields null. Frontend branches on ``formula_version`` to pick\nthe right rendering.",
+        "properties": {
+          "computed_at": {
+            "format": "date-time",
+            "title": "Computed At",
+            "type": "string"
+          },
+          "coverage_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why this ticker has (or doesn't have) a ridge_score. 'covered' = score populated. 'below_cap_floor' = below the $25B v3.3 cap floor. 'no_cap_data' = stock_financials missing market_cap. 'regime_paused' = v3.1 regime gate fired. Null on v1/v2 historical rows.",
+            "title": "Coverage Status"
+          },
+          "data_as_of": {
+            "format": "date",
+            "title": "Data As Of",
+            "type": "string"
+          },
+          "formula_version": {
+            "default": "v3.0",
+            "title": "Formula Version",
+            "type": "string"
+          },
+          "n_observations": {
+            "title": "N Observations",
+            "type": "integer"
+          },
+          "paused_since": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when the v3.1 regime gate is active and this DTO carries the last pre-pause covered prediction as a stale fallback. The date is the first paused run. Null = not paused (or no fallback available).",
+            "title": "Paused Since"
+          },
+          "ridge_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Raw Ridge composite prediction in z-score-of-forward-return units. Null for v1/v2 rows.",
+            "title": "Ridge Score"
+          },
+          "ridge_score_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "0-100 universe rank of ridge_score for this slice. The headline 0-100 number on the ticker page. Null for v1/v2 rows.",
+            "title": "Ridge Score Pct"
+          },
+          "sector": {
+            "$ref": "#/components/schemas/ConvexityScoreFlavor"
+          },
+          "sector_etf": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "GICS-sector ETF for this ticker (XLK, XLF, etc.). Carried at v3.0 for reference even though the score itself is universe-wide; the sector_rank fields below compute rank within the sector cohort.",
+            "title": "Sector Etf"
+          },
+          "sector_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "1-indexed rank within the sector_etf cohort for the same data_as_of / window / formula_version. Rank 1 is highest. None if sector_etf is unmapped or cohort < 2 tickers.",
+            "title": "Sector Rank"
+          },
+          "sector_universe_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Number of tickers in the sector_etf cohort for the same slice. Denominator for rank rendering ('27 of 73').",
+            "title": "Sector Universe Size"
+          },
+          "spy": {
+            "$ref": "#/components/schemas/ConvexityScoreFlavor"
+          },
+          "ticker": {
+            "title": "Ticker",
+            "type": "string"
+          },
+          "window_days": {
+            "title": "Window Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ticker",
+          "data_as_of",
+          "computed_at",
+          "window_days",
+          "n_observations"
+        ],
+        "title": "ConvexityScoreDTO",
+        "type": "object"
+      },
+      "ConvexityScoreFlavor": {
+        "description": "One estimator flavor -- either SPY-relative or sector-relative.",
+        "properties": {
+          "ci_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "90% bootstrap CI upper",
+            "title": "Ci High"
+          },
+          "ci_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "90% bootstrap CI lower",
+            "title": "Ci Low"
+          },
+          "convexity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "up_capture - down_capture. Positive = long-gamma profile.",
+            "title": "Convexity"
+          },
+          "down_capture": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Down Capture"
+          },
+          "score_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "0-100 sector-percentile rank of convexity within GICS sector.",
+            "title": "Score Pct"
+          },
+          "up_capture": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Up Capture"
+          }
+        },
+        "title": "ConvexityScoreFlavor",
+        "type": "object"
+      },
+      "CreatedWebhookDTO": {
+        "description": "Includes the signing secret. Re-fetchable from GET (it is a verification\nsecret, not a credential), but surfaced explicitly on create/rotate.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_delivery_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Delivery At"
+          },
+          "secret": {
+            "title": "Secret",
+            "type": "string"
+          },
+          "ticker_filter": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker Filter"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "events",
+          "ticker_filter",
+          "description",
+          "enabled",
+          "created_at",
+          "last_delivery_at",
+          "secret"
+        ],
+        "title": "CreatedWebhookDTO",
+        "type": "object"
+      },
+      "DataEnvelope_BatchQuoteResponse_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/BatchQuoteResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/DataMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "DataEnvelope[BatchQuoteResponse]",
+        "type": "object"
+      },
+      "DataEnvelope_EventData_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/EventData"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/DataMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "DataEnvelope[EventData]",
+        "type": "object"
+      },
+      "DataEnvelope_HistoryData_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/HistoryData"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/DataMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "DataEnvelope[HistoryData]",
+        "type": "object"
+      },
+      "DataEnvelope_QuoteData_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/QuoteData"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/DataMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "DataEnvelope[QuoteData]",
+        "type": "object"
+      },
+      "DataEnvelope_ReferenceData_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ReferenceData"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/DataMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "DataEnvelope[ReferenceData]",
+        "type": "object"
+      },
+      "DataEnvelope_RelatedData_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RelatedData"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/DataMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "DataEnvelope[RelatedData]",
+        "type": "object"
+      },
+      "DataEnvelope_ScreenerResults_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ScreenerResults"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/DataMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "DataEnvelope[ScreenerResults]",
+        "type": "object"
+      },
+      "DataEnvelope_SectorDistributionSummary_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SectorDistributionSummary"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/DataMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "DataEnvelope[SectorDistributionSummary]",
+        "type": "object"
+      },
+      "DataEnvelope_Union_ConvexityScoreDTO__NoneType__": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConvexityScoreDTO"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "$ref": "#/components/schemas/DataMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "DataEnvelope[Union[ConvexityScoreDTO, NoneType]]",
+        "type": "object"
+      },
+      "DataMeta": {
+        "description": "Freshness + provenance metadata attached to every data response.",
+        "properties": {
+          "data_as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Timestamp of the newest data point in ``data``. For row-oriented responses this is typically ``MAX(transaction_date)``. None when the data payload is empty.",
+            "title": "Data As Of"
+          },
+          "last_sync_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Timestamp of the most recent upstream sync run for this source, regardless of whether it produced new rows. Read from ``data_sync_log.completed_at``.",
+            "title": "Last Sync At"
+          },
+          "regime_gate_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Convexity-score-specific. True when the v3.1 SPY 60d realized vol regime gate suppressed scoring for this run (vol >= 20% annualized). False when scoring ran normally. None on non-convexity surfaces or pre-v3.1 historical rows.",
+            "title": "Regime Gate Active"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stable identifier for the upstream data source, e.g. 'sec_edgar_form4'. Shown in the freshness badge tooltip.",
+            "title": "Source"
+          },
+          "sync_status": {
+            "default": "unknown",
+            "description": "Coarse health indicator: 'healthy' if recent sync succeeded, 'stale' if sync is old but not catastrophic, 'failed' if the most recent sync failed or no sync ran in the expected window, 'unknown' if we have no ``data_sync_log`` history yet, 'preview' if the service is behind a synthetic-data gate and not yet wired to a real upstream.",
+            "enum": [
+              "healthy",
+              "stale",
+              "failed",
+              "unknown",
+              "preview",
+              "historical"
+            ],
+            "title": "Sync Status",
+            "type": "string"
+          }
+        },
+        "title": "DataMeta",
+        "type": "object"
+      },
+      "DatasetDTO": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "params_hint": {
+            "title": "Params Hint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "params_hint"
+        ],
+        "title": "DatasetDTO",
+        "type": "object"
+      },
+      "DeliveryDTO": {
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "delivered_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivered At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "event_type": {
+            "title": "Event Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "next_retry_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Retry At"
+          },
+          "response_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Code"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "event_type",
+          "status",
+          "attempts",
+          "response_code",
+          "error",
+          "created_at",
+          "delivered_at",
+          "next_retry_at"
+        ],
+        "title": "DeliveryDTO",
+        "type": "object"
+      },
+      "EventCatalogEntry": {
+        "properties": {
+          "carries_ticker": {
+            "title": "Carries Ticker",
+            "type": "boolean"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "live": {
+            "title": "Live",
+            "type": "boolean"
+          },
+          "requires_ticker_filter": {
+            "title": "Requires Ticker Filter",
+            "type": "boolean"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "description",
+          "carries_ticker",
+          "live",
+          "requires_ticker_filter"
+        ],
+        "title": "EventCatalogEntry",
+        "type": "object"
+      },
+      "EventData": {
+        "description": "Top-level event payload. ``upcoming_earnings`` is null when no future\nrow exists in earnings_calendar -- Vexa renders the card as\n'Next earnings TBD'.",
+        "properties": {
+          "recent_earnings": {
+            "items": {
+              "$ref": "#/components/schemas/RecentEarnings"
+            },
+            "title": "Recent Earnings",
+            "type": "array"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "upcoming_earnings": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UpcomingEarnings"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "title": "EventData",
+        "type": "object"
+      },
+      "ExportCreate": {
+        "properties": {
+          "dataset": {
+            "description": "One of the datasets from GET /datasets.",
+            "title": "Dataset",
+            "type": "string"
+          },
+          "format": {
+            "default": "csv",
+            "description": "csv | json",
+            "title": "Format",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          }
+        },
+        "required": [
+          "dataset"
+        ],
+        "title": "ExportCreate",
+        "type": "object"
+      },
+      "ExportJobDTO": {
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dataset": {
+            "title": "Dataset",
+            "type": "string"
+          },
+          "download_ready": {
+            "title": "Download Ready",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "format": {
+            "title": "Format",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "row_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Count"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "dataset",
+          "format",
+          "status",
+          "row_count",
+          "error",
+          "created_at",
+          "completed_at",
+          "download_ready"
+        ],
+        "title": "ExportJobDTO",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HistoryData": {
+        "description": "Top-level response shape, wrapped in DataEnvelope at the route layer.",
+        "properties": {
+          "interval": {
+            "title": "Interval",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "range": {
+            "title": "Range",
+            "type": "string"
+          },
+          "symbol": {
+            "description": "Single ticker for /quote/history/{ticker}, or 'PORTFOLIO' for /portfolio/history.",
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "range",
+          "interval"
+        ],
+        "title": "HistoryData",
+        "type": "object"
+      },
+      "HistoryPoint": {
+        "description": "One bar in the time series.\n\nFor ticker history every field is populated (Polygon aggregates are\nreal OHLCV bars). For portfolio history only ``t`` and ``c`` are\npopulated -- see module docstring for the P/L semantics.",
+        "properties": {
+          "c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "C"
+          },
+          "h": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "H"
+          },
+          "l": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "L"
+          },
+          "o": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "O"
+          },
+          "t": {
+            "description": "ISO 8601 UTC timestamp of the bar's open.",
+            "format": "date-time",
+            "title": "T",
+            "type": "string"
+          },
+          "v": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "V"
+          }
+        },
+        "required": [
+          "t"
+        ],
+        "title": "HistoryPoint",
+        "type": "object"
+      },
+      "LimitsResponse": {
+        "properties": {
+          "calls_remaining": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calls Remaining"
+          },
+          "calls_used_this_period": {
+            "title": "Calls Used This Period",
+            "type": "integer"
+          },
+          "is_service_account": {
+            "title": "Is Service Account",
+            "type": "boolean"
+          },
+          "period_resets_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Resets At"
+          },
+          "period_start": {
+            "format": "date-time",
+            "title": "Period Start",
+            "type": "string"
+          },
+          "rate_limit": {
+            "$ref": "#/components/schemas/RateLimitInfo"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tier",
+          "is_service_account",
+          "calls_used_this_period",
+          "calls_remaining",
+          "period_start",
+          "period_resets_at",
+          "rate_limit"
+        ],
+        "title": "LimitsResponse",
+        "type": "object"
+      },
+      "MaxOnly": {
+        "description": "Inclusive upper bound only.",
+        "properties": {
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          }
+        },
+        "title": "MaxOnly",
+        "type": "object"
+      },
+      "MinOnly": {
+        "description": "Inclusive lower bound only.",
+        "properties": {
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          }
+        },
+        "title": "MinOnly",
+        "type": "object"
+      },
+      "NumericRange": {
+        "description": "Inclusive [min, max] range. Either bound can be null = open-ended.",
+        "properties": {
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          }
+        },
+        "title": "NumericRange",
+        "type": "object"
+      },
+      "PortfolioHistoryHolding": {
+        "description": "One position in the portfolio. ``shares`` drives the time series\nweighting (price * shares = position value); ``market_value`` is\naccepted but not used in v1 -- kept in the schema for forward-compat\nwith the portfolio score endpoint's body shape.",
+        "properties": {
+          "market_value": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Value"
+          },
+          "shares": {
+            "exclusiveMinimum": 0.0,
+            "title": "Shares",
+            "type": "number"
+          },
+          "symbol": {
+            "maxLength": 20,
+            "minLength": 1,
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "shares"
+        ],
+        "title": "PortfolioHistoryHolding",
+        "type": "object"
+      },
+      "PortfolioHistoryRequest": {
+        "description": "Body of the portfolio history POST.",
+        "properties": {
+          "holdings": {
+            "items": {
+              "$ref": "#/components/schemas/PortfolioHistoryHolding"
+            },
+            "minItems": 1,
+            "title": "Holdings",
+            "type": "array"
+          },
+          "range": {
+            "default": "1M",
+            "title": "Range",
+            "type": "string"
+          }
+        },
+        "required": [
+          "holdings"
+        ],
+        "title": "PortfolioHistoryRequest",
+        "type": "object"
+      },
+      "PortfolioHolding": {
+        "description": "One position in the portfolio.\n\n``shares`` is included for forward-compat (per-position lots,\nfactor breakdown surfaces in v2) but the v1 portfolio score uses\n``market_value`` only -- that's the weight, and Vexa is the source\nof truth for it. We don't recompute from shares \u00d7 price here.",
+        "properties": {
+          "market_value": {
+            "minimum": 0.0,
+            "title": "Market Value",
+            "type": "number"
+          },
+          "shares": {
+            "default": 0.0,
+            "minimum": 0.0,
+            "title": "Shares",
+            "type": "number"
+          },
+          "symbol": {
+            "maxLength": 20,
+            "minLength": 1,
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "market_value"
+        ],
+        "title": "PortfolioHolding",
+        "type": "object"
+      },
+      "PortfolioScoreData": {
+        "description": "Response data block -- the score itself + the top-5 explanatory factors.",
+        "properties": {
+          "computed_at": {
+            "format": "date-time",
+            "title": "Computed At",
+            "type": "string"
+          },
+          "factors": {
+            "items": {
+              "$ref": "#/components/schemas/PortfolioScoreFactor"
+            },
+            "maxItems": 5,
+            "title": "Factors",
+            "type": "array"
+          },
+          "score_pct": {
+            "maximum": 100.0,
+            "minimum": -100.0,
+            "title": "Score Pct",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "score_pct",
+          "computed_at"
+        ],
+        "title": "PortfolioScoreData",
+        "type": "object"
+      },
+      "PortfolioScoreEnvelope": {
+        "description": "Top-level response shape.\n\nShape mirrors DataEnvelope[T] (``{data, meta}``) for visual consistency\non the wire even though the meta semantics are different.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PortfolioScoreData"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/PortfolioScoreMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "PortfolioScoreEnvelope",
+        "type": "object"
+      },
+      "PortfolioScoreFactor": {
+        "description": "One factor explaining the portfolio score's deviation from neutral.\n\nv1 surfaces per-position contributions only -- each factor's ``name``\nis a ticker. Future versions may add synthesized factors (concentration\nHHI penalty, options exposure, sector tilt). When that lands the\n``name`` field stays free-form text and Vexa renders whatever's\nreturned without needing a client-side switch.",
+        "properties": {
+          "contribution": {
+            "description": "Integer points of the portfolio score (-100..+100 scale).",
+            "title": "Contribution",
+            "type": "integer"
+          },
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "contribution",
+          "explanation"
+        ],
+        "title": "PortfolioScoreFactor",
+        "type": "object"
+      },
+      "PortfolioScoreMeta": {
+        "description": "Compute-cache meta. NOT the standard DataMeta -- see module docstring.",
+        "properties": {
+          "cache_age_seconds": {
+            "minimum": 0.0,
+            "title": "Cache Age Seconds",
+            "type": "integer"
+          },
+          "freshness": {
+            "enum": [
+              "fresh",
+              "stale"
+            ],
+            "title": "Freshness",
+            "type": "string"
+          },
+          "missing_symbols": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Symbols",
+            "type": "array"
+          },
+          "partial": {
+            "default": false,
+            "title": "Partial",
+            "type": "boolean"
+          },
+          "source": {
+            "enum": [
+              "live",
+              "cached"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "cache_age_seconds",
+          "freshness"
+        ],
+        "title": "PortfolioScoreMeta",
+        "type": "object"
+      },
+      "PortfolioScoreRequest": {
+        "description": "Inbound payload for the portfolio score endpoint.",
+        "properties": {
+          "holdings": {
+            "items": {
+              "$ref": "#/components/schemas/PortfolioHolding"
+            },
+            "minItems": 1,
+            "title": "Holdings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "holdings"
+        ],
+        "title": "PortfolioScoreRequest",
+        "type": "object"
+      },
+      "QuoteData": {
+        "description": "Per-ticker quote payload. ``price=None`` is the contract-compliant\nshape for an unknown / unfetchable symbol -- never a 404, never a 5xx\nbubble. Vexa renders ``\"--\"`` for null prices.",
+        "properties": {
+          "change": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Day change in $.",
+            "title": "Change"
+          },
+          "change_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Day change as percent (e.g. 1.23 = +1.23%).",
+            "title": "Change Percent"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO 4217 (e.g. 'USD'). Null when unknown.",
+            "title": "Currency"
+          },
+          "delay_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Delay magnitude in minutes when ``delayed`` is True.",
+            "title": "Delay Minutes"
+          },
+          "delayed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "True when upstream data is delayed (free-tier Polygon).",
+            "title": "Delayed"
+          },
+          "exchange": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange"
+          },
+          "market_cap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Cap"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "prev_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prev Close"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last trade or quote.",
+            "title": "Price"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "volume": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume"
+          }
+        },
+        "required": [
+          "symbol",
+          "name"
+        ],
+        "title": "QuoteData",
+        "type": "object"
+      },
+      "RateLimitInfo": {
+        "properties": {
+          "per_day": {
+            "title": "Per Day",
+            "type": "integer"
+          },
+          "per_minute": {
+            "title": "Per Minute",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "per_minute",
+          "per_day"
+        ],
+        "title": "RateLimitInfo",
+        "type": "object"
+      },
+      "RecentEarnings": {
+        "description": "One past earnings row with both estimate + actual filled in.",
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "eps_actual": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eps Actual"
+          },
+          "eps_estimate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eps Estimate"
+          },
+          "revenue_actual": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Actual"
+          },
+          "revenue_estimate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Estimate"
+          },
+          "surprise_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Surprise Pct"
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "title": "RecentEarnings",
+        "type": "object"
+      },
+      "ReferenceData": {
+        "description": "Per-ticker reference data shape returned by ``/api/v1/reference/{ticker}``.",
+        "properties": {
+          "avg_volume_30d": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Reserved for v2 -- not populated in v1. Computing this requires a 30-day aggregate fetch per ticker which doesn't fit the 5s budget. Return null until a nightly job populates it.",
+            "title": "Avg Volume 30D"
+          },
+          "beta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Source: stock_financials.beta (5y monthly).",
+            "title": "Beta"
+          },
+          "ceo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Current CEO/leader name. Reserved for v2 -- Polygon TickerDetails doesn't expose this; needs a yfinance.companyOfficers sync.",
+            "title": "Ceo"
+          },
+          "day_range_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Source: live snapshot day_high.",
+            "title": "Day Range High"
+          },
+          "day_range_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Source: live snapshot day_low.",
+            "title": "Day Range Low"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Priority: company_profiles.description \u2192 Massive get_ticker_details.description. Truncated to 500 chars at the service layer per spec -- long values are cut at a word boundary near 500 with an ellipsis suffix.",
+            "title": "Description"
+          },
+          "dividend_yield": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Source: stock_financials.dividend_yield. Returned as a fraction (0.0234 means 2.34%), per spec.",
+            "title": "Dividend Yield"
+          },
+          "employee_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Most recent reported employee count. Source: Polygon TickerDetails.total_employees (priority) \u2192 company_profiles.employees.",
+            "title": "Employee Count"
+          },
+          "eps_ttm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Derived: market_cap / shares_outstanding / pe_ratio. Null when any input is missing (mostly for thinly-covered tickers).",
+            "title": "Eps Ttm"
+          },
+          "fifty_two_week_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fifty Two Week High"
+          },
+          "fifty_two_week_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fifty Two Week Low"
+          },
+          "founded_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Year company founded (earliest known founding date). Reserved for v2 -- needs a Wikipedia-derived sync. Note: this is FOUNDING year, not IPO; ipo_date is the IPO.",
+            "title": "Founded Year"
+          },
+          "headquarters": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Headquarters as 'City, State' (US) or 'City, Country' (non-US), no street address. Source: Polygon TickerDetails.address dict -- composed from city + state_province (or city + country).",
+            "title": "Headquarters"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Priority: company_profiles.industry \u2192 stock_financials.industry.",
+            "title": "Industry"
+          },
+          "ipo_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Source: Massive get_ticker_details.list_date.",
+            "title": "Ipo Date"
+          },
+          "market_cap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Source: stock_financials.market_cap (yfinance, nightly).",
+            "title": "Market Cap"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "next_earnings_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Source: earnings_calendar.earnings_date -- first future row for this ticker. Null when none scheduled or ticker untracked.",
+            "title": "Next Earnings Date"
+          },
+          "pe_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Source: stock_financials.pe_trailing (TTM).",
+            "title": "Pe Ratio"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Priority: company_profiles.sector \u2192 stock_financials.sector. Both nightly synced from yfinance.",
+            "title": "Sector"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "name"
+        ],
+        "title": "ReferenceData",
+        "type": "object"
+      },
+      "RelatedData": {
+        "description": "Top-level related payload. ``related`` may be empty when no source\nhas data for this ticker -- empty array is the contract-compliant\nresponse, never a 4xx.",
+        "properties": {
+          "related": {
+            "items": {
+              "$ref": "#/components/schemas/RelatedTicker"
+            },
+            "title": "Related",
+            "type": "array"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "title": "RelatedData",
+        "type": "object"
+      },
+      "RelatedTicker": {
+        "description": "One related-ticker entry. Vexa hydrates name/price/dayChange via the\nexisting /api/v1/quote/batch endpoint, so this only carries the symbol\nplus relation metadata.",
+        "properties": {
+          "relation_type": {
+            "enum": [
+              "peer",
+              "sector",
+              "supply_chain",
+              "thematic"
+            ],
+            "title": "Relation Type",
+            "type": "string"
+          },
+          "score": {
+            "description": "0-1 relatedness score. Higher = more related.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "relation_type",
+          "score"
+        ],
+        "title": "RelatedTicker",
+        "type": "object"
+      },
+      "ScreenerCriteria": {
+        "description": "Filter criteria. Every field optional -- absent = no filter.",
+        "properties": {
+          "altman_z_score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MinOnly"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Altman Z-Score (manufacturer formula). Higher = less bankruptcy risk. Min=3 is 'safe zone'; [1.8, 3] grey; < 1.8 distress. FMP /financial-scores."
+          },
+          "analyst_count": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Number of analysts covering the name."
+          },
+          "analyst_downgrade_within_days": {
+            "anyOf": [
+              {
+                "maximum": 365.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "EXISTS at least one analyst_actions row with action='downgrade' in the last N days. Useful as an *exclude* filter (combined with NOT semantics via the existing exclude_symbols pattern is not yet supported -- this is presence-only).",
+            "title": "Analyst Downgrade Within Days"
+          },
+          "analyst_upgrade_within_days": {
+            "anyOf": [
+              {
+                "maximum": 365.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "EXISTS at least one analyst_actions row with action='upgrade' in the last N days. Sourced from FMP /grades-latest-news via analyst_actions_sync.",
+            "title": "Analyst Upgrade Within Days"
+          },
+          "avg_volume_30d": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "30-day average daily volume in shares. Useful for thinly-traded exclusion (min=100_000) or for top-of-book filters."
+          },
+          "beta": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "5y beta vs SPY."
+          },
+          "concentration": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MaxOnly"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Max institutional_ownership fraction (0-1). 0.8 means 'no more than 80% institutional concentration'."
+          },
+          "congress_traded_within_days": {
+            "anyOf": [
+              {
+                "maximum": 365.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "EXISTS at least one congressional (politician) trade in politician_trades with trade_date in the last N days. Mirrors the insider_buys_within_days presence semantics (>= 1 trade qualifies). Capped at 365.",
+            "title": "Congress Traded Within Days"
+          },
+          "convexity_score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "country": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set match against company_profiles.country. Values are FMP's ISO-style 2-letter codes ('US', 'CA', 'GB', etc.). Empty list = no filter.",
+            "title": "Country"
+          },
+          "current_ratio": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Current assets / current liabilities. FMP /ratios-ttm.currentRatioTTM. Min=1 filters to liquid balance sheets."
+          },
+          "days_since_last_earnings": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Days between the latest earnings_surprises.fiscal_date and today. max=14 \u2192 'reported in the last 2 weeks'. min=60 \u2192 'haven't reported in 60+ days' (typically pre-print window)."
+          },
+          "dcf_upside_pct": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "(sf.dcf_intrinsic_value - last_close) / last_close. Positive = DCF says under-priced. min=0.10 = 'at least 10% upside to fair value'."
+          },
+          "debt_to_equity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total debt / equity ratio. FMP /ratios-ttm.debtToEquityRatioTTM. Higher = more leveraged."
+          },
+          "distance_from_52w_high_pct": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "(last_close - 52w_high) / 52w_high. Always <= 0 by definition. Min=-0.02 = 'within 2% of 52-week high' (i.e. effectively at new high)."
+          },
+          "distance_from_52w_low_pct": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "(last_close - 52w_low) / 52w_low. Always >= 0 by definition. Max=0.02 = 'within 2% of 52-week low'."
+          },
+          "dividend_payer": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "True = include only payers (dividend_yield > 0). False = non-payers only. Omit for no filter.",
+            "title": "Dividend Payer"
+          },
+          "dividend_yield": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Trailing dividend yield as a fraction (0.03 = 3%). yfinance convention; non-payers have null and are excluded by any range bound."
+          },
+          "earnings_beat_streak": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MinOnly"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Count of consecutive positive surprises starting from the most recent quarter, capped at 4. min=4 \u2192 'beat in each of the last 4 quarters'. min=2 \u2192 'beat last 2'."
+          },
+          "earnings_growth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "YoY earnings growth, fraction. stock_financials.earnings_growth."
+          },
+          "earnings_whisper": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MinOnly"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Min whisper_score (0-100; higher = more likely to beat consensus). Source: ``earnings_whisper_cache`` table populated daily for tickers with upcoming earnings in the next 30 days. Tickers off the earnings cycle are excluded. Use min=70 for 'likely beat', min=55 for 'lean beat'."
+          },
+          "eight_k_min_severity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Constrain eight_k_within_days matches to rows with max_severity at or above this threshold. Values (from least to most severe): 'low', 'medium', 'high', 'critical'. Standalone (without eight_k_within_days) defaults to a 30-day window.",
+            "title": "Eight K Min Severity"
+          },
+          "eight_k_within_days": {
+            "anyOf": [
+              {
+                "maximum": 365.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "EXISTS at least one eight_k_filings row in the last N days. Combine with eight_k_min_severity to filter to material events only.",
+            "title": "Eight K Within Days"
+          },
+          "enterprise_value": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Enterprise value in dollars."
+          },
+          "eps_growth_5y_cagr_pct": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Forward EPS CAGR across the analyst-estimates window. Same value the existing peg_ratio_forward derives from; exposed here as a first-class filter."
+          },
+          "eps_growth_next_year_pct": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "(next FY consensus EPS - current FY EPS) / current FY EPS. Decimal fraction. NULL when either endpoint is non-positive."
+          },
+          "esg_environmental_score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "esg_governance_score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "esg_score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "esg_social_score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ev_to_ebitda": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "EV/EBITDA (stock_financials.ev_ebitda)."
+          },
+          "ev_to_sales": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "EV / TTM revenue. Maps to sf.ev_revenue."
+          },
+          "exchange": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set match against company_profiles.exchange. Values are FMP's exchange short names ('NASDAQ', 'NYSE', 'AMEX', 'TSX', etc.).",
+            "title": "Exchange"
+          },
+          "fcf_yield_pct": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Free-cash-flow yield as a fraction (0.05 = 5%). Derived at query time as sf.free_cash_flow / NULLIF(sf.market_cap, 0); NULL when market_cap <= 0 (drops out of any bound). min=0 = 'FCF-yield positive'; min=0.05 = 'yield >= 5%'."
+          },
+          "float_shares": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Absolute public float in shares: shares_outstanding \u00d7 (1 - insider_ownership). NULL when either input is NULL."
+          },
+          "float_short": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Short interest as % of float (stored in percent units; 20 = 20%). min=20 'high'; min=30 'squeeze candidate'. stock_financials.float_short."
+          },
+          "free_cash_flow": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "TTM free cash flow in dollars. Stored absolute; common floor is min=0 for 'FCF positive'."
+          },
+          "gross_margin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Gross margin, fraction."
+          },
+          "hv_20d": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "20-day historical volatility, annualized fraction."
+          },
+          "hv_60d": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "60-day historical volatility, annualized fraction."
+          },
+          "include_etfs": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "False = screen common stock only (drop ETF/fund rows where stock_financials.is_etf is true). True or omitted = no security-type filter.",
+            "title": "Include Etfs"
+          },
+          "index_membership": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set match: ticker is currently a constituent of any of these indices. Values: 'sp500', 'nasdaq100', 'dow30'. Sourced from index_constituents (FMP nightly sync).",
+            "title": "Index Membership"
+          },
+          "insider_buy_dollar_value_within_days": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sum of insider_trades.total_value for BUY transactions (transaction_type='BUY', not 10b5-1) over the last 90 days. Range bound in dollars. min=1_000_000 \u2192 'at least $1M of discretionary insider buying in the last quarter'. Window fixed at 90 days for now; can be parameterized if needed."
+          },
+          "insider_buys_within_days": {
+            "anyOf": [
+              {
+                "maximum": 365.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Include only tickers with at least one insider BUY in ``insider_trades`` filed in the last N days. Excludes 10b5-1 planned trades (lower-conviction signal). Capped at 365.",
+            "title": "Insider Buys Within Days"
+          },
+          "insider_ownership": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Insider ownership as a fraction of float (0-1; FMP convention)."
+          },
+          "institutional_holders": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MinOnly"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Min count of distinct 13F filers (CIKs) holding this ticker, sourced from whale_positions. Realistic range 0-29 in prod."
+          },
+          "interest_coverage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "EBIT / interest expense. Higher = more cushion. <1 = unable to service interest from operating earnings."
+          },
+          "iv_change": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MaxOnly"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Max iv_change_pct (current ATM IV vs ~30 days ago, signed fraction). 0 -> 'IV declining or flat'; -0.05 -> 'IV down at least 5%'. Source: ``iv_summary`` table populated nightly from ``options_chain_snapshots``. Universe today is the ~14 tickers covered by the snapshot job (SPY, QQQ, mega-caps); tickers without IV data are excluded."
+          },
+          "last_earnings_surprise_pct": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Most recent quarter's EPS surprise as a fraction (0.05 = 5% beat). Reads the latest earnings_surprises row per ticker via scalar subquery. NULL when no row exists (thinly-covered or fresh IPO) \u2192 drops out of any bound."
+          },
+          "market_cap": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "net_margin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Net profit margin, fraction. Maps to stock_financials.profit_margin (yfinance/FMP naming convention)."
+          },
+          "news_keywords": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "List of keywords. A ticker matches when at least one news headline in news_headlines.title (lowercased) contains any of the keywords, linked via news_ticker_map, within the trailing 14 days. Empty list = no filter.",
+            "title": "News Keywords"
+          },
+          "operating_margin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Operating margin, fraction."
+          },
+          "payout_ratio": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Payout ratio (dividends / net income), fraction."
+          },
+          "pe_ratio": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Trailing P/E (stock_financials.pe_trailing). Negative-earnings names carry negative PE; constrain with min/max bounds to exclude them (e.g. min=0)."
+          },
+          "peg_ratio": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "PEG ratio (FMP /key-metrics-ttm.pegRatioTTM)."
+          },
+          "peg_ratio_forward": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Forward PEG (analyst growth-rate based)."
+          },
+          "piotroski_f_score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MinOnly"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Piotroski F-Score, integer 0-9. Higher = stronger fundamentals. Min=7 is the canonical 'strong' threshold. FMP /financial-scores."
+          },
+          "price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Most recent close in dollars. price_derived_cache.last_close. Use min/max to constrain ('penny' = max 5, 'sub-100' = max 100)."
+          },
+          "price_to_book": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Price/Book (stock_financials.pb_ratio)."
+          },
+          "price_to_fcf": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "market_cap / free_cash_flow. NULL when FCF <= 0 (a row with negative FCF doesn't have a meaningful P/FCF and naturally drops out of any range bound)."
+          },
+          "price_to_sales": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Price/Sales (stock_financials.ps_ratio)."
+          },
+          "quick_ratio": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "(Cash + receivables) / current liabilities. FMP /ratios-ttm.quickRatioTTM. Stricter liquidity than current ratio."
+          },
+          "recent_filing_within_days": {
+            "anyOf": [
+              {
+                "maximum": 365.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "EXISTS at least one recent SEC filing -- an 8-K (eight_k_filings) or a periodic 10-Q/10-K (sec_quarterly_filings) -- with filing_date in the last N days. Presence-only (>= 1 filing qualifies). Capped at 365.",
+            "title": "Recent Filing Within Days"
+          },
+          "recommendation": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Analyst recommendation set match. Values mirror yfinance / FMP labels: 'strong_buy', 'buy', 'hold', 'sell', 'strong_sell'. Empty list = no filter.",
+            "title": "Recommendation"
+          },
+          "relative_volume": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Today's volume / trailing 30d average. min=1.5 'unusual' / min=3 'breakout'. stock_financials.relative_volume."
+          },
+          "return_1m_pct": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "return_1y_pct": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "return_3m_pct": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "return_6m_pct": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "return_ytd_pct": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revenue_growth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "YoY revenue growth, fraction. stock_financials.revenue_growth."
+          },
+          "revenue_growth_next_year_pct": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "(next FY consensus revenue - current FY revenue) / current FY revenue. Decimal fraction."
+          },
+          "roa": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Return on assets, fraction."
+          },
+          "roe": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Return on equity, fraction (0.15 = 15%)."
+          },
+          "roic": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Return on invested capital, fraction. FMP /key-metrics-ttm.returnOnInvestedCapitalTTM."
+          },
+          "rsi": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "RSI(14) bound. Common values: max=30 'oversold'; min=70 'overbought'. stock_financials.rsi."
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set match. Empty list also means no filter (consistent with absent).",
+            "title": "Sector"
+          },
+          "sma200_distance_pct": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "(last_close - sma_200) / sma_200, signed fraction. Same semantics as sma50_distance_pct."
+          },
+          "sma50_distance_pct": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "(last_close - sma_50) / sma_50, signed fraction (0.10 = 10% above SMA50). Min > 0 = 'above SMA50'; min=0.10 = 'breakout 10%+ above'. Max < 0 = 'below SMA50'."
+          },
+          "target_upside_pct": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "(sf.target_mean_price - last_close) / last_close. Analyst consensus target relative to current price."
+          },
+          "upcoming_earnings_within_days": {
+            "anyOf": [
+              {
+                "maximum": 90.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Earnings date in [now, now + N days]. Capped at 90.",
+            "title": "Upcoming Earnings Within Days"
+          }
+        },
+        "title": "ScreenerCriteria",
+        "type": "object"
+      },
+      "ScreenerRequest": {
+        "description": "Inbound payload.",
+        "properties": {
+          "criteria": {
+            "$ref": "#/components/schemas/ScreenerCriteria"
+          },
+          "exclude_symbols": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Exclude Symbols",
+            "type": "array"
+          },
+          "include_symbols": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 1000,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Symbol allowlist applied as a server-side ``sf.symbol IN (...)`` WHERE clause -- the positive counterpart to exclude_symbols. Semantics are deliberately three-valued: ``None`` (the default) means no filter; a NON-empty list restricts to those symbols; an EMPTY list ``[]`` matches NOTHING (0 rows). The empty-list case is what makes 'held only' correct when the caller holds nothing -- it must return no rows, not the whole universe. The browser screener never sends this directly; the session route fills it when resolving ``portfolio_mode``.",
+            "title": "Include Symbols"
+          },
+          "limit": {
+            "default": 25,
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "description": "Number of result rows to skip before returning ``limit`` rows. Pair with ``total_matches`` from the response to drive client-side pagination. Capped at 10k to avoid runaway deep-paging on uncapped universes.",
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "portfolio_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "held",
+                  "not_held",
+                  "watchlist"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "User-relative exposure scope. Resolved ONLY by the session-authenticated route (``POST /api/screener``), which looks up the caller's holdings / watchlist and rewrites this into include_symbols / exclude_symbols before the query runs. The public API-key route (``POST /api/v1/screener``) has no user and ignores this field (no filtering, no error).",
+            "title": "Portfolio Mode"
+          },
+          "sort_by": {
+            "default": "symbol",
+            "enum": [
+              "convexity_score",
+              "market_cap",
+              "symbol",
+              "pe_ratio",
+              "peg_ratio",
+              "dividend_yield",
+              "roe",
+              "roic",
+              "debt_to_equity",
+              "revenue_growth",
+              "earnings_growth",
+              "ps_ratio",
+              "pb_ratio",
+              "ev_ebitda",
+              "profit_margin",
+              "roa",
+              "free_cash_flow",
+              "beta",
+              "rsi",
+              "relative_volume",
+              "price",
+              "change"
+            ],
+            "title": "Sort By",
+            "type": "string"
+          },
+          "sort_order": {
+            "default": "asc",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "title": "Sort Order",
+            "type": "string"
+          },
+          "symbol_query": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Free-text search across ticker symbol + company name (case-insensitive substring). Applied to the full universe BEFORE pagination, so a match surfaces regardless of which result page it would otherwise sort onto. Scoping, not a criterion -- excluded from matched_criteria, same as exclude_symbols.",
+            "title": "Symbol Query"
+          }
+        },
+        "title": "ScreenerRequest",
+        "type": "object"
+      },
+      "ScreenerResultRow": {
+        "description": "One result row.\n\n``score`` is the convexity score percentile (0-100) -- the screener's\nprimary ranking signal regardless of sort_by. Vexa renders this as\nthe chip on each Discover card.\n\n``matched_criteria`` echoes back the names of criteria the request\nspecified that are actually applied server-side (excludes reserved\nfields). All criteria are AND-applied, so every result row matches\nevery applied criterion -- the list is identical across rows in v1\nand primarily useful for Vexa to render \"matched on: convexity, sector\".\n\nDisplay fields (Phase 1 of scanner migration, cache v8) -- populated\nfrom the LEFT JOIN to stock_financials + company_profiles so the\nAdvancedScreener2 table can render directly off the response without\na per-row /financials/snapshot fan-out. Every display field is\nnullable: tickers without a stock_financials row render with \"--\".\nCurrent price + SMA/52w distance deferred to Phase 3 (need a quote\nstore join).",
+        "properties": {
+          "altman_z_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Altman Z Score"
+          },
+          "analyst_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analyst Count"
+          },
+          "avg_volume_30d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Volume 30D"
+          },
+          "beta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Beta"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "current_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Ratio"
+          },
+          "days_since_last_earnings": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days Since Last Earnings"
+          },
+          "dcf_intrinsic_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dcf Intrinsic Value"
+          },
+          "debt_to_equity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Debt To Equity"
+          },
+          "dividend_yield": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dividend Yield"
+          },
+          "earnings_growth": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earnings Growth"
+          },
+          "enterprise_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enterprise Value"
+          },
+          "eps_growth_5y_cagr_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eps Growth 5Y Cagr Pct"
+          },
+          "eps_growth_next_year_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eps Growth Next Year Pct"
+          },
+          "esg_environmental_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Esg Environmental Score"
+          },
+          "esg_governance_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Esg Governance Score"
+          },
+          "esg_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Esg Score"
+          },
+          "esg_social_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Esg Social Score"
+          },
+          "ev_ebitda": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ev Ebitda"
+          },
+          "ev_revenue": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ev Revenue"
+          },
+          "exchange": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange"
+          },
+          "fifty_two_week_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fifty Two Week High"
+          },
+          "fifty_two_week_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fifty Two Week Low"
+          },
+          "float_short": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Float Short"
+          },
+          "free_cash_flow": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free Cash Flow"
+          },
+          "gross_margin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gross Margin"
+          },
+          "hv_20d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hv 20D"
+          },
+          "hv_60d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hv 60D"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
+          "insider_ownership": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Insider Ownership"
+          },
+          "interest_coverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interest Coverage"
+          },
+          "last_earnings_fiscal_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Earnings Fiscal Date"
+          },
+          "last_earnings_surprise_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Earnings Surprise Pct"
+          },
+          "market_cap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Cap"
+          },
+          "matched_criteria": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Matched Criteria",
+            "type": "array"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "operating_margin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operating Margin"
+          },
+          "payout_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payout Ratio"
+          },
+          "pb_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pb Ratio"
+          },
+          "pe_forward": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pe Forward"
+          },
+          "pe_trailing": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pe Trailing"
+          },
+          "peg_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peg Ratio"
+          },
+          "peg_ratio_forward": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peg Ratio Forward"
+          },
+          "piotroski_f_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Piotroski F Score"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "profit_margin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profit Margin"
+          },
+          "ps_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ps Ratio"
+          },
+          "quick_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quick Ratio"
+          },
+          "recommendation_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommendation Key"
+          },
+          "relative_volume": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relative Volume"
+          },
+          "return_1m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return 1M"
+          },
+          "return_1w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return 1W"
+          },
+          "return_1y": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return 1Y"
+          },
+          "return_3m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return 3M"
+          },
+          "return_6m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return 6M"
+          },
+          "return_ytd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Ytd"
+          },
+          "revenue_growth": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Growth"
+          },
+          "revenue_growth_next_year_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Growth Next Year Pct"
+          },
+          "roa": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roa"
+          },
+          "roe": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roe"
+          },
+          "roic": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roic"
+          },
+          "rsi": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rsi"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "security_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Type"
+          },
+          "shares_outstanding": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares Outstanding"
+          },
+          "sma_200": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sma 200"
+          },
+          "sma_50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sma 50"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "target_mean_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Mean Price"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "title": "ScreenerResultRow",
+        "type": "object"
+      },
+      "ScreenerResults": {
+        "description": "Top-level response data.",
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/ScreenerResultRow"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "total_matches": {
+            "minimum": 0.0,
+            "title": "Total Matches",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_matches"
+        ],
+        "title": "ScreenerResults",
+        "type": "object"
+      },
+      "SecretDTO": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "secret": {
+            "title": "Secret",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "secret"
+        ],
+        "title": "SecretDTO",
+        "type": "object"
+      },
+      "SectorDistributionPercentiles": {
+        "description": "Quartile/percentile cuts of the sector cohort's convexity_spy values.",
+        "properties": {
+          "p25": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P25"
+          },
+          "p50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50"
+          },
+          "p75": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P75"
+          },
+          "p90": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P90"
+          }
+        },
+        "title": "SectorDistributionPercentiles",
+        "type": "object"
+      },
+      "SectorDistributionSummary": {
+        "description": "Aggregated distribution summary for the Vexa donut-ring surface.\n\nDifferent shape from the per-row ``SectorDistributionRow`` list returned\nby the internal route - Vexa's UI doesn't need the full cohort, just\nwhere this ticker sits within it.\n\nTwo readings live side by side here at v3.0:\n\n- ``ticker_percentile`` is the **universe rank** (0-100) sourced from\n  ``convexity_scores.ridge_score_pct``. This is the headline number the\n  methodology page talks about - a 75 means \"higher predicted forward\n  return than 75% of the universe.\"\n- ``sector_distribution`` (p25 / p50 / p75 / p90) and ``ticker_score``\n  are **sector-cohort context**. Quartile cuts of the raw ridge_score\n  values within the ticker's GICS-sector peer group, plus this ticker's\n  raw score. Useful for \"your ticker sits at +0.04 vs sector median\n  of +0.01\" framing alongside the universe rank.\n\nBoth readings come from the same nightly run. v1/v2 historical reads\n(via ?formula_version=v2) fall back to convexity_spy + score_spy_pct.",
+        "properties": {
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "GICS sector name (e.g. 'Technology'). Null when the ticker is not sector-mapped (ADR, ETF, foreign listing).",
+            "title": "Sector"
+          },
+          "sector_distribution": {
+            "$ref": "#/components/schemas/SectorDistributionPercentiles",
+            "description": "Cohort percentile cuts of ticker_score values within the ticker's GICS sector. All-null when sector cohort is empty."
+          },
+          "sector_size": {
+            "default": 0,
+            "description": "Number of tickers in the sector cohort with a score for the latest slice.",
+            "minimum": 0.0,
+            "title": "Sector Size",
+            "type": "integer"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "ticker_percentile": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Universe-rank percentile (0-100). v3.0 sources from ridge_score_pct; v1/v2 historical reads source from score_spy_pct. No recomputation in the route - the value comes straight from convexity_scores.",
+            "title": "Ticker Percentile"
+          },
+          "ticker_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Raw score for this ticker. v3.0: ridge_score in z-score-of-forward-return units. v1/v2: convexity_spy in roughly [-1, +1].",
+            "title": "Ticker Score"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "title": "SectorDistributionSummary",
+        "type": "object"
+      },
+      "UpcomingEarnings": {
+        "description": "The next future earnings event for the ticker, if any.",
+        "properties": {
+          "consensus_eps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consensus Eps"
+          },
+          "consensus_revenue": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consensus Revenue"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "prev_quarter_eps_actual": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prev Quarter Eps Actual"
+          },
+          "prev_quarter_eps_estimate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prev Quarter Eps Estimate"
+          },
+          "prev_quarter_surprise_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "(actual - estimate) / |estimate|. Null if either input null.",
+            "title": "Prev Quarter Surprise Pct"
+          },
+          "time": {
+            "anyOf": [
+              {
+                "enum": [
+                  "bmo",
+                  "amc",
+                  "tbd"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pre-market (bmo), post-market (amc), or unconfirmed (tbd). Map from earnings_calendar.time_of_day where 'BMO'\u2192bmo, 'AMC'\u2192amc, and anything else (TAS, '', etc.) \u2192 tbd.",
+            "title": "Time"
+          }
+        },
+        "title": "UpcomingEarnings",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WebhookCreate": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "events": {
+            "description": "Event types to subscribe to, e.g. ['convexity_score.updated'].",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Events",
+            "type": "array"
+          },
+          "ticker_filter": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Symbols to scope ticker-bearing events to. Required for high-volume events like convexity_score.updated.",
+            "title": "Ticker Filter"
+          },
+          "url": {
+            "description": "Public https URL to POST events to.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "events"
+        ],
+        "title": "WebhookCreate",
+        "type": "object"
+      },
+      "WebhookDTO": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_delivery_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Delivery At"
+          },
+          "ticker_filter": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker Filter"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "events",
+          "ticker_filter",
+          "description",
+          "enabled",
+          "created_at",
+          "last_delivery_at"
+        ],
+        "title": "WebhookDTO",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "OAuth2PasswordBearer": {
+        "flows": {
+          "password": {
+            "scopes": {},
+            "tokenUrl": "/api/auth/login"
+          }
+        },
+        "type": "oauth2"
+      }
+    }
+  },
+  "info": {
+    "description": "Convexity's externally-callable REST surface. All routes require a Bearer API key issued from the /settings/developer dashboard. See https://convexityos.com/developers for auth, scopes, rate limits, and error codes.",
+    "title": "Convexity Public API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/convexity-score/portfolio": {
+      "post": {
+        "description": "Compute the portfolio's aggregate convexity score (-100..+100).\n\nCache key includes the API-key owner ID + sorted holdings + day\nbucket; identical requests on the same day return ``meta.source:\n\"cached\"``. The portfolio endpoint counts as one call against the\nVexa key's quota even though it fans out N per-ticker reads\ninternally -- the fan-out goes straight to the service-layer query\nand skips the rate-limit middleware.",
+        "operationId": "post_portfolio_score_api_v1_convexity_score_portfolio_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PortfolioScoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioScoreEnvelope"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Aggregate convexity score over a holdings list.",
+        "tags": [
+          "v1",
+          "convexity-score"
+        ]
+      }
+    },
+    "/api/v1/convexity-score/{ticker}": {
+      "get": {
+        "description": "Latest convexity score for one ticker (public API).\n\nEmpty-data envelope is the contract-compliant response for unknown\ntickers, unscored tickers, and unsupported windows - never a 404.",
+        "operationId": "get_convexity_score_api_v1_convexity_score__ticker__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticker",
+            "required": true,
+            "schema": {
+              "title": "Ticker",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Trading-day window. Supported: (180, 252, 1260). 180 is the v3.0 headline (forward-return target horizon). 252 / 1260 stay supported for ?formula_version=v2 historical queries.",
+            "in": "query",
+            "name": "window_days",
+            "required": false,
+            "schema": {
+              "default": 180,
+              "description": "Trading-day window. Supported: (180, 252, 1260). 180 is the v3.0 headline (forward-return target horizon). 252 / 1260 stay supported for ?formula_version=v2 historical queries.",
+              "title": "Window Days",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Which formula version to read. Defaults to the current version. Old versions remain queryable per the methodology's public formula-versioning commitment.",
+            "in": "query",
+            "name": "formula_version",
+            "required": false,
+            "schema": {
+              "default": "v3.3",
+              "description": "Which formula version to read. Defaults to the current version. Old versions remain queryable per the methodology's public formula-versioning commitment.",
+              "title": "Formula Version",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataEnvelope_Union_ConvexityScoreDTO__NoneType__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Convexity Score",
+        "tags": [
+          "v1",
+          "convexity-score"
+        ]
+      }
+    },
+    "/api/v1/convexity-score/{ticker}/distribution": {
+      "get": {
+        "description": "Sector cohort distribution summary (Vexa \u00a717.11 Convexity Distribution).\n\nDifferent shape from the internal /api/convexity-score/{ticker}/distribution\nroute -- that one returns the full member list (used by the Convexity\nfrontend's mini-distribution chart). This v1 surface returns the\naggregated summary Vexa needs for the donut-ring visualization:\nticker's score, cohort quartiles, ticker's percentile rank, cohort size.\n\nEmpty/null fields when the ticker isn't sector-mapped or the cohort\nis too small to have a meaningful distribution. Never 4xx -- same\ncontract-compliant empty-data behavior as the score endpoint.",
+        "operationId": "get_sector_distribution_api_v1_convexity_score__ticker__distribution_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticker",
+            "required": true,
+            "schema": {
+              "title": "Ticker",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "window_days",
+            "required": false,
+            "schema": {
+              "default": 180,
+              "title": "Window Days",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "formula_version",
+            "required": false,
+            "schema": {
+              "default": "v3.3",
+              "title": "Formula Version",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataEnvelope_SectorDistributionSummary_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Sector Distribution",
+        "tags": [
+          "v1",
+          "convexity-score"
+        ]
+      }
+    },
+    "/api/v1/event/{ticker}": {
+      "get": {
+        "description": "Upcoming earnings + last-N-quarter actuals/estimates.\n\nReturns 404 only when the ticker is genuinely unknown (no rows in\nearnings_calendar AND existence-check quote returns price=null).\nTickers that exist but have no upcoming earnings \u2192 200 with\n``upcoming_earnings: null``.",
+        "operationId": "get_event_api_v1_event__ticker__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticker",
+            "required": true,
+            "schema": {
+              "title": "Ticker",
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many past quarters of recent_earnings to return.",
+            "in": "query",
+            "name": "lookback_quarters",
+            "required": false,
+            "schema": {
+              "default": 4,
+              "description": "How many past quarters of recent_earnings to return.",
+              "maximum": 20,
+              "minimum": 1,
+              "title": "Lookback Quarters",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataEnvelope_EventData_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Event",
+        "tags": [
+          "v1",
+          "event"
+        ]
+      }
+    },
+    "/api/v1/exports": {
+      "get": {
+        "operationId": "list_exports_api_v1_exports_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ExportJobDTO"
+                  },
+                  "title": "Response List Exports Api V1 Exports Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Exports",
+        "tags": [
+          "v1",
+          "exports"
+        ]
+      },
+      "post": {
+        "operationId": "create_export_api_v1_exports_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportJobDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Export",
+        "tags": [
+          "v1",
+          "exports"
+        ]
+      }
+    },
+    "/api/v1/exports/datasets": {
+      "get": {
+        "operationId": "list_datasets_api_v1_exports_datasets_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DatasetDTO"
+                  },
+                  "title": "Response List Datasets Api V1 Exports Datasets Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Datasets",
+        "tags": [
+          "v1",
+          "exports"
+        ]
+      }
+    },
+    "/api/v1/exports/{job_id}": {
+      "get": {
+        "operationId": "get_export_api_v1_exports__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportJobDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Export",
+        "tags": [
+          "v1",
+          "exports"
+        ]
+      }
+    },
+    "/api/v1/exports/{job_id}/download": {
+      "get": {
+        "operationId": "download_export_api_v1_exports__job_id__download_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Export",
+        "tags": [
+          "v1",
+          "exports"
+        ]
+      }
+    },
+    "/api/v1/limits": {
+      "get": {
+        "operationId": "get_limits_api_v1_limits_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LimitsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Limits",
+        "tags": [
+          "v1",
+          "limits"
+        ]
+      }
+    },
+    "/api/v1/portfolio/history": {
+      "post": {
+        "description": "Portfolio aggregate P/L history. Body: ``{holdings: [...], range}``.\n\nFan-out to per-ticker history is parallel via asyncio.gather and\ncounts as one call against the API key's rate-limit quota -- same\nposture as the portfolio score endpoint. Cache key includes the\nsorted (symbol, shares) tuples so identical portfolios share a slot.",
+        "operationId": "post_portfolio_history_api_v1_portfolio_history_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PortfolioHistoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataEnvelope_HistoryData_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Portfolio History",
+        "tags": [
+          "v1",
+          "portfolio",
+          "history"
+        ]
+      }
+    },
+    "/api/v1/quote/batch": {
+      "post": {
+        "description": "Batch quote endpoint. 25-symbol cap enforced in-route so an\noversized request returns 400 (per spec), not Pydantic's default 422.\n\nResponse is a map keyed by symbol. Symbols upstream couldn't resolve\nare still present in the map with ``price=None`` -- Vexa renders\na placeholder cell rather than a \"missing\" lookup.\n\nCounts as one call against the API key's rate-limit quota even\nthough it fans out to N upstream queries; the fan-out goes through\nthe service layer, not the HTTP route.",
+        "operationId": "post_batch_quotes_api_v1_quote_batch_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchQuoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataEnvelope_BatchQuoteResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Batch Quotes",
+        "tags": [
+          "v1",
+          "quote"
+        ]
+      }
+    },
+    "/api/v1/quote/history/{ticker}": {
+      "get": {
+        "description": "OHLCV history for one ticker. Cache-warmed; tiered TTL by range\n(5min for 1D/1W during market hours, 1h for 1M-YTD, 24h for 1Y+).",
+        "operationId": "get_history_api_v1_quote_history__ticker__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticker",
+            "required": true,
+            "schema": {
+              "title": "Ticker",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Timeframe: 1D | 1W | 1M | 3M | YTD | 1Y | 2Y | ALL. Matches Vexa's chart timeframe selector.",
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "default": "1M",
+              "description": "Timeframe: 1D | 1W | 1M | 3M | YTD | 1Y | 2Y | ALL. Matches Vexa's chart timeframe selector.",
+              "title": "Range",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Bar interval (1m/5m/15m/30m/1h/1d/1wk/1mo/3mo). Defaults: 1D=5m, 1W=30m, 1M+=1d, ALL=1wk.",
+            "in": "query",
+            "name": "interval",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Bar interval (1m/5m/15m/30m/1h/1d/1wk/1mo/3mo). Defaults: 1D=5m, 1W=30m, 1M+=1d, ALL=1wk.",
+              "title": "Interval"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataEnvelope_HistoryData_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get History",
+        "tags": [
+          "v1",
+          "quote",
+          "history"
+        ]
+      }
+    },
+    "/api/v1/quote/{ticker}": {
+      "get": {
+        "description": "Single-ticker quote. Always returns a payload -- unknown / unfetchable\nsymbols come back with ``price=None`` rather than 4xx, per the\ncontract.",
+        "operationId": "get_quote_api_v1_quote__ticker__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticker",
+            "required": true,
+            "schema": {
+              "title": "Ticker",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataEnvelope_QuoteData_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Quote",
+        "tags": [
+          "v1",
+          "quote"
+        ]
+      }
+    },
+    "/api/v1/reference/{ticker}": {
+      "get": {
+        "description": "Per-ticker reference data. 404 only when the ticker is genuinely\nunknown to every source -- partial coverage returns 200 with nulls.\n\nCounts as one call against the API key's rate-limit quota even though\nthe implementation fans out to multiple internal data sources.",
+        "operationId": "get_reference_data_api_v1_reference__ticker__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticker",
+            "required": true,
+            "schema": {
+              "title": "Ticker",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataEnvelope_ReferenceData_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Reference Data",
+        "tags": [
+          "v1",
+          "reference"
+        ]
+      }
+    },
+    "/api/v1/related/{ticker}": {
+      "get": {
+        "description": "Related tickers (peers, sector members, supply-chain edges).\n\nEmpty ``related: []`` is the contract-compliant response when no\nsource has anything for the ticker -- never a 404. Vexa hydrates\nname + price + day change via ``/api/v1/quote/batch`` for each\nreturned symbol.",
+        "operationId": "get_related_api_v1_related__ticker__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticker",
+            "required": true,
+            "schema": {
+              "title": "Ticker",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 6,
+              "maximum": 10,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Filter to a single source: 'peers' | 'sector' | 'supply_chain' | 'all'. 'peer' (singular) is also accepted as an alias for 'peers'.",
+            "in": "query",
+            "name": "relation_type",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "description": "Filter to a single source: 'peers' | 'sector' | 'supply_chain' | 'all'. 'peer' (singular) is also accepted as an alias for 'peers'.",
+              "title": "Relation Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataEnvelope_RelatedData_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Related",
+        "tags": [
+          "v1",
+          "related"
+        ]
+      }
+    },
+    "/api/v1/screener": {
+      "post": {
+        "description": "Run the screener with the given criteria.\n\nCache: 6h Redis TTL keyed on the canonical request hash. Same body\ntwice within 6h returns ``meta.source: \"screener_v1_cached\"``.\n\nCounts as one call against the API key's rate-limit quota even\nthough the underlying SQL touches up to 4 tables.",
+        "operationId": "post_screener_api_v1_screener_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScreenerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataEnvelope_ScreenerResults_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Screener",
+        "tags": [
+          "v1",
+          "screener"
+        ]
+      }
+    },
+    "/api/v1/webhooks": {
+      "get": {
+        "operationId": "list_webhooks_api_v1_webhooks_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WebhookDTO"
+                  },
+                  "title": "Response List Webhooks Api V1 Webhooks Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Webhooks",
+        "tags": [
+          "v1",
+          "webhooks"
+        ]
+      },
+      "post": {
+        "operationId": "create_webhook_api_v1_webhooks_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedWebhookDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Webhook",
+        "tags": [
+          "v1",
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks/events": {
+      "get": {
+        "description": "The subscribable event catalog. ``live`` is honest -- a False event is a\nreserved name with no producer yet.",
+        "operationId": "list_events_api_v1_webhooks_events_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EventCatalogEntry"
+                  },
+                  "title": "Response List Events Api V1 Webhooks Events Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Events",
+        "tags": [
+          "v1",
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks/{endpoint_id}": {
+      "delete": {
+        "operationId": "delete_webhook_api_v1_webhooks__endpoint_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "endpoint_id",
+            "required": true,
+            "schema": {
+              "title": "Endpoint Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Webhook",
+        "tags": [
+          "v1",
+          "webhooks"
+        ]
+      },
+      "get": {
+        "operationId": "get_webhook_api_v1_webhooks__endpoint_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "endpoint_id",
+            "required": true,
+            "schema": {
+              "title": "Endpoint Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Webhook",
+        "tags": [
+          "v1",
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks/{endpoint_id}/deliveries": {
+      "get": {
+        "operationId": "list_deliveries_api_v1_webhooks__endpoint_id__deliveries_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "endpoint_id",
+            "required": true,
+            "schema": {
+              "title": "Endpoint Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeliveryDTO"
+                  },
+                  "title": "Response List Deliveries Api V1 Webhooks  Endpoint Id  Deliveries Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Deliveries",
+        "tags": [
+          "v1",
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks/{endpoint_id}/rotate-secret": {
+      "post": {
+        "operationId": "rotate_secret_api_v1_webhooks__endpoint_id__rotate_secret_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "endpoint_id",
+            "required": true,
+            "schema": {
+              "title": "Endpoint Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rotate Secret",
+        "tags": [
+          "v1",
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks/{endpoint_id}/test": {
+      "post": {
+        "operationId": "test_webhook_api_v1_webhooks__endpoint_id__test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "endpoint_id",
+            "required": true,
+            "schema": {
+              "title": "Endpoint Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Test Webhook",
+        "tags": [
+          "v1",
+          "webhooks"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://convexityos.com"
+    }
+  ]
+}
