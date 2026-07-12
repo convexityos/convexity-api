@@ -2,7 +2,7 @@
   "components": {
     "schemas": {
       "BatchQuoteRequest": {
-        "description": "Inbound payload for the batch endpoint.\n\nCap is 25 -- matches Vexa's free-tier watchlist limit. Symbols are\nupper-cased + de-duplicated server-side; the client doesn't need to\npre-normalize.\n\nNote: ``min_length=1`` is enforced via Pydantic, but the 25 cap is\nenforced in the route handler so we can return 400 (spec) instead\nof Pydantic's default 422.",
+        "description": "Inbound payload for the batch endpoint.\n\nUp to 25 symbols per call; oversized requests return 400. Symbols\nare upper-cased and de-duplicated server-side, so clients don't need\nto pre-normalize.",
         "properties": {
           "symbols": {
             "items": {
@@ -37,7 +37,7 @@
         "type": "object"
       },
       "ConvexityScoreDTO": {
-        "description": "Per-ticker convexity score row.\n\nv3.0 populates ``ridge_score`` and ``ridge_score_pct`` and leaves the\n``spy`` / ``sector`` flavors all-null. v1/v2 historical rows (queryable\nvia ``?formula_version=v2``) populate the flavor fields and leave the\nRidge fields null. Frontend branches on ``formula_version`` to pick\nthe right rendering.",
+        "description": "Per-ticker convexity score row.\n\nv3.0 populates ``ridge_score`` and ``ridge_score_pct`` and leaves the\n``spy`` / ``sector`` flavors all-null. v1/v2 historical rows (queryable\nvia ``?formula_version=v2``) populate the flavor fields and leave the\nRidge fields null. Consumers branch on ``formula_version`` to pick\nwhich fields to read.",
         "properties": {
           "computed_at": {
             "format": "date-time",
@@ -53,7 +53,7 @@
                 "type": "null"
               }
             ],
-            "description": "Why this ticker has (or doesn't have) a ridge_score. 'covered' = score populated. 'below_cap_floor' = below the $25B v3.3 cap floor. 'no_cap_data' = stock_financials missing market_cap. 'regime_paused' = v3.1 regime gate fired. Null on v1/v2 historical rows.",
+            "description": "Why this ticker has (or doesn't have) a ridge_score. 'covered' = score populated. 'below_cap_floor' = below the $25B v3.3 cap floor. 'no_cap_data' = no market-cap data available. 'regime_paused' = v3.1 regime gate fired. Null on v1/v2 historical rows.",
             "title": "Coverage Status"
           },
           "data_as_of": {
@@ -248,7 +248,7 @@
         "type": "object"
       },
       "CreatedWebhookDTO": {
-        "description": "Includes the signing secret. Re-fetchable from GET (it is a verification\nsecret, not a credential), but surfaced explicitly on create/rotate.",
+        "description": "Includes the signing secret. The secret is returned only on create\nand rotate-secret; recover a lost secret by rotating it.",
         "properties": {
           "created_at": {
             "format": "date-time",
@@ -494,7 +494,7 @@
                 "type": "null"
               }
             ],
-            "description": "Timestamp of the newest data point in ``data``. For row-oriented responses this is typically ``MAX(transaction_date)``. None when the data payload is empty.",
+            "description": "Timestamp of the newest data point in ``data`` -- never the request time. None when the data payload is empty.",
             "title": "Data As Of"
           },
           "last_sync_at": {
@@ -507,7 +507,7 @@
                 "type": "null"
               }
             ],
-            "description": "Timestamp of the most recent upstream sync run for this source, regardless of whether it produced new rows. Read from ``data_sync_log.completed_at``.",
+            "description": "Timestamp of the most recent upstream sync run for this source, regardless of whether it produced new rows.",
             "title": "Last Sync At"
           },
           "regime_gate_active": {
@@ -531,12 +531,12 @@
                 "type": "null"
               }
             ],
-            "description": "Stable identifier for the upstream data source, e.g. 'sec_edgar_form4'. Shown in the freshness badge tooltip.",
+            "description": "Stable identifier for the upstream data source, e.g. 'sec_edgar_form4'.",
             "title": "Source"
           },
           "sync_status": {
             "default": "unknown",
-            "description": "Coarse health indicator: 'healthy' if recent sync succeeded, 'stale' if sync is old but not catastrophic, 'failed' if the most recent sync failed or no sync ran in the expected window, 'unknown' if we have no ``data_sync_log`` history yet, 'preview' if the service is behind a synthetic-data gate and not yet wired to a real upstream.",
+            "description": "Coarse health indicator: 'healthy' if a recent sync succeeded, 'stale' if the last sync is old but not catastrophic, 'failed' if the most recent sync failed or no sync ran in the expected window, 'unknown' if no sync history exists yet, 'preview' if the source is not yet wired to a live upstream, 'historical' if the response replays a point-in-time snapshot.",
             "enum": [
               "healthy",
               "stale",
@@ -693,7 +693,7 @@
         "type": "object"
       },
       "EventData": {
-        "description": "Top-level event payload. ``upcoming_earnings`` is null when no future\nrow exists in earnings_calendar -- Vexa renders the card as\n'Next earnings TBD'.",
+        "description": "Top-level event payload. ``upcoming_earnings`` is null when no\nfuture earnings event is known for the ticker.",
         "properties": {
           "recent_earnings": {
             "items": {
@@ -870,7 +870,7 @@
         "type": "object"
       },
       "HistoryPoint": {
-        "description": "One bar in the time series.\n\nFor ticker history every field is populated (Polygon aggregates are\nreal OHLCV bars). For portfolio history only ``t`` and ``c`` are\npopulated -- see module docstring for the P/L semantics.",
+        "description": "One bar in the time series.\n\nFor ticker history every field is populated (real OHLCV bars). For\nportfolio history only ``t`` and ``c`` are populated: ``c`` is the\ncumulative P/L in dollars from the first point of the range, and\nOHLC/volume semantics don't transfer to a derived aggregate.",
         "properties": {
           "c": {
             "anyOf": [
@@ -1101,9 +1101,11 @@
         "description": "Body of the portfolio history POST.",
         "properties": {
           "holdings": {
+            "description": "1-500 positions per request.",
             "items": {
               "$ref": "#/components/schemas/PortfolioHistoryHolding"
             },
+            "maxItems": 500,
             "minItems": 1,
             "title": "Holdings",
             "type": "array"
@@ -1121,7 +1123,7 @@
         "type": "object"
       },
       "PortfolioHolding": {
-        "description": "One position in the portfolio.\n\n``shares`` is included for forward-compat (per-position lots,\nfactor breakdown surfaces in v2) but the v1 portfolio score uses\n``market_value`` only -- that's the weight, and Vexa is the source\nof truth for it. We don't recompute from shares \u00d7 price here.",
+        "description": "One position in the portfolio.\n\nThe v1 portfolio score weights by ``market_value`` only. ``shares``\nis accepted for forward-compatibility and does not affect the score\n(the service never recomputes value from shares \u00d7 price).",
         "properties": {
           "market_value": {
             "minimum": 0.0,
@@ -1196,7 +1198,7 @@
         "type": "object"
       },
       "PortfolioScoreFactor": {
-        "description": "One factor explaining the portfolio score's deviation from neutral.\n\nv1 surfaces per-position contributions only -- each factor's ``name``\nis a ticker. Future versions may add synthesized factors (concentration\nHHI penalty, options exposure, sector tilt). When that lands the\n``name`` field stays free-form text and Vexa renders whatever's\nreturned without needing a client-side switch.",
+        "description": "One factor explaining the portfolio score's deviation from neutral.\n\nv1 surfaces per-position contributions only -- each factor's ``name``\nis a ticker. ``name`` stays free-form text so future versions can add\nsynthesized factors; render it verbatim rather than assuming it is a\nsymbol.",
         "properties": {
           "contribution": {
             "description": "Integer points of the portfolio score (-100..+100 scale).",
@@ -1221,7 +1223,7 @@
         "type": "object"
       },
       "PortfolioScoreMeta": {
-        "description": "Compute-cache meta. NOT the standard DataMeta -- see module docstring.",
+        "description": "Compute-cache metadata: whether the score was computed live or served\nfrom cache, the cache age, and partial-coverage flags.",
         "properties": {
           "cache_age_seconds": {
             "minimum": 0.0,
@@ -1269,9 +1271,11 @@
         "description": "Inbound payload for the portfolio score endpoint.",
         "properties": {
           "holdings": {
+            "description": "1-500 positions per request.",
             "items": {
               "$ref": "#/components/schemas/PortfolioHolding"
             },
+            "maxItems": 500,
             "minItems": 1,
             "title": "Holdings",
             "type": "array"
@@ -1284,7 +1288,7 @@
         "type": "object"
       },
       "QuoteData": {
-        "description": "Per-ticker quote payload. ``price=None`` is the contract-compliant\nshape for an unknown / unfetchable symbol -- never a 404, never a 5xx\nbubble. Vexa renders ``\"--\"`` for null prices.",
+        "description": "Per-ticker quote payload. ``price=null`` is the contract-compliant\nshape for an unknown / unfetchable symbol -- never a 404, never a 5xx\nbubble.",
         "properties": {
           "change": {
             "anyOf": [
@@ -1343,7 +1347,7 @@
                 "type": "null"
               }
             ],
-            "description": "True when upstream data is delayed (free-tier Polygon).",
+            "description": "True when upstream data is delayed rather than real-time.",
             "title": "Delayed"
           },
           "exchange": {
@@ -1518,7 +1522,7 @@
                 "type": "null"
               }
             ],
-            "description": "Reserved for v2 -- not populated in v1. Computing this requires a 30-day aggregate fetch per ticker which doesn't fit the 5s budget. Return null until a nightly job populates it.",
+            "description": "Reserved for v2 -- not populated in v1; always null.",
             "title": "Avg Volume 30D"
           },
           "beta": {
@@ -1530,7 +1534,7 @@
                 "type": "null"
               }
             ],
-            "description": "Source: stock_financials.beta (5y monthly).",
+            "description": "Beta vs the broad market (5y monthly).",
             "title": "Beta"
           },
           "ceo": {
@@ -1542,7 +1546,7 @@
                 "type": "null"
               }
             ],
-            "description": "Current CEO/leader name. Reserved for v2 -- Polygon TickerDetails doesn't expose this; needs a yfinance.companyOfficers sync.",
+            "description": "Current CEO/leader name. Reserved for v2 -- not populated in v1; always null.",
             "title": "Ceo"
           },
           "day_range_high": {
@@ -1554,7 +1558,7 @@
                 "type": "null"
               }
             ],
-            "description": "Source: live snapshot day_high.",
+            "description": "Today's session high.",
             "title": "Day Range High"
           },
           "day_range_low": {
@@ -1566,7 +1570,7 @@
                 "type": "null"
               }
             ],
-            "description": "Source: live snapshot day_low.",
+            "description": "Today's session low.",
             "title": "Day Range Low"
           },
           "description": {
@@ -1578,7 +1582,7 @@
                 "type": "null"
               }
             ],
-            "description": "Priority: company_profiles.description \u2192 Massive get_ticker_details.description. Truncated to 500 chars at the service layer per spec -- long values are cut at a word boundary near 500 with an ellipsis suffix.",
+            "description": "Company description. Truncated to 500 characters -- long values are cut at a word boundary with an ellipsis suffix.",
             "title": "Description"
           },
           "dividend_yield": {
@@ -1590,7 +1594,7 @@
                 "type": "null"
               }
             ],
-            "description": "Source: stock_financials.dividend_yield. Returned as a fraction (0.0234 means 2.34%), per spec.",
+            "description": "Trailing dividend yield as a fraction (0.0234 means 2.34%).",
             "title": "Dividend Yield"
           },
           "employee_count": {
@@ -1602,7 +1606,7 @@
                 "type": "null"
               }
             ],
-            "description": "Most recent reported employee count. Source: Polygon TickerDetails.total_employees (priority) \u2192 company_profiles.employees.",
+            "description": "Most recent reported employee count.",
             "title": "Employee Count"
           },
           "eps_ttm": {
@@ -1614,7 +1618,7 @@
                 "type": "null"
               }
             ],
-            "description": "Derived: market_cap / shares_outstanding / pe_ratio. Null when any input is missing (mostly for thinly-covered tickers).",
+            "description": "Trailing-twelve-month EPS, derived as market_cap / shares_outstanding / pe_ratio. Null when any input is missing (mostly thinly-covered tickers).",
             "title": "Eps Ttm"
           },
           "fifty_two_week_high": {
@@ -1648,7 +1652,7 @@
                 "type": "null"
               }
             ],
-            "description": "Year company founded (earliest known founding date). Reserved for v2 -- needs a Wikipedia-derived sync. Note: this is FOUNDING year, not IPO; ipo_date is the IPO.",
+            "description": "Year the company was founded (not the IPO year; see ipo_date). Reserved for v2 -- not populated in v1; always null.",
             "title": "Founded Year"
           },
           "headquarters": {
@@ -1660,7 +1664,7 @@
                 "type": "null"
               }
             ],
-            "description": "Headquarters as 'City, State' (US) or 'City, Country' (non-US), no street address. Source: Polygon TickerDetails.address dict -- composed from city + state_province (or city + country).",
+            "description": "Headquarters as 'City, State' (US) or 'City, Country' (non-US); no street address.",
             "title": "Headquarters"
           },
           "industry": {
@@ -1672,7 +1676,7 @@
                 "type": "null"
               }
             ],
-            "description": "Priority: company_profiles.industry \u2192 stock_financials.industry.",
+            "description": "Industry classification.",
             "title": "Industry"
           },
           "ipo_date": {
@@ -1685,7 +1689,7 @@
                 "type": "null"
               }
             ],
-            "description": "Source: Massive get_ticker_details.list_date.",
+            "description": "Listing (IPO) date.",
             "title": "Ipo Date"
           },
           "market_cap": {
@@ -1697,7 +1701,7 @@
                 "type": "null"
               }
             ],
-            "description": "Source: stock_financials.market_cap (yfinance, nightly).",
+            "description": "Market capitalization in USD; refreshed nightly.",
             "title": "Market Cap"
           },
           "name": {
@@ -1714,7 +1718,7 @@
                 "type": "null"
               }
             ],
-            "description": "Source: earnings_calendar.earnings_date -- first future row for this ticker. Null when none scheduled or ticker untracked.",
+            "description": "Next scheduled earnings date. Null when none is scheduled or the ticker is untracked.",
             "title": "Next Earnings Date"
           },
           "pe_ratio": {
@@ -1726,7 +1730,7 @@
                 "type": "null"
               }
             ],
-            "description": "Source: stock_financials.pe_trailing (TTM).",
+            "description": "Trailing (TTM) price/earnings ratio.",
             "title": "Pe Ratio"
           },
           "sector": {
@@ -1738,7 +1742,7 @@
                 "type": "null"
               }
             ],
-            "description": "Priority: company_profiles.sector \u2192 stock_financials.sector. Both nightly synced from yfinance.",
+            "description": "Sector classification.",
             "title": "Sector"
           },
           "symbol": {
@@ -1775,7 +1779,7 @@
         "type": "object"
       },
       "RelatedTicker": {
-        "description": "One related-ticker entry. Vexa hydrates name/price/dayChange via the\nexisting /api/v1/quote/batch endpoint, so this only carries the symbol\nplus relation metadata.",
+        "description": "One related-ticker entry. Carries only the symbol plus relation\nmetadata; hydrate name/price/day-change via /api/v1/quote/batch.",
         "properties": {
           "relation_type": {
             "enum": [
@@ -1819,7 +1823,7 @@
                 "type": "null"
               }
             ],
-            "description": "Altman Z-Score (manufacturer formula). Higher = less bankruptcy risk. Min=3 is 'safe zone'; [1.8, 3] grey; < 1.8 distress. FMP /financial-scores."
+            "description": "Altman Z-Score (manufacturer formula). Higher = less bankruptcy risk. Min=3 is 'safe zone'; [1.8, 3] grey; < 1.8 distress."
           },
           "analyst_count": {
             "anyOf": [
@@ -1843,7 +1847,7 @@
                 "type": "null"
               }
             ],
-            "description": "EXISTS at least one analyst_actions row with action='downgrade' in the last N days. Useful as an *exclude* filter (combined with NOT semantics via the existing exclude_symbols pattern is not yet supported -- this is presence-only).",
+            "description": "At least one analyst downgrade in the last N days. Presence-only -- NOT semantics ('exclude downgraded names') are not yet supported.",
             "title": "Analyst Downgrade Within Days"
           },
           "analyst_upgrade_within_days": {
@@ -1857,7 +1861,7 @@
                 "type": "null"
               }
             ],
-            "description": "EXISTS at least one analyst_actions row with action='upgrade' in the last N days. Sourced from FMP /grades-latest-news via analyst_actions_sync.",
+            "description": "At least one analyst upgrade in the last N days.",
             "title": "Analyst Upgrade Within Days"
           },
           "avg_volume_30d": {
@@ -1904,7 +1908,7 @@
                 "type": "null"
               }
             ],
-            "description": "EXISTS at least one congressional (politician) trade in politician_trades with trade_date in the last N days. Mirrors the insider_buys_within_days presence semantics (>= 1 trade qualifies). Capped at 365.",
+            "description": "At least one disclosed congressional (politician) trade in the last N days. Mirrors the insider_buys_within_days presence semantics (>= 1 trade qualifies). Capped at 365.",
             "title": "Congress Traded Within Days"
           },
           "convexity_score": {
@@ -1929,7 +1933,7 @@
                 "type": "null"
               }
             ],
-            "description": "Set match against company_profiles.country. Values are FMP's ISO-style 2-letter codes ('US', 'CA', 'GB', etc.). Empty list = no filter.",
+            "description": "Country set match. Values are ISO-style 2-letter codes ('US', 'CA', 'GB', etc.). Empty list = no filter.",
             "title": "Country"
           },
           "current_ratio": {
@@ -1941,7 +1945,7 @@
                 "type": "null"
               }
             ],
-            "description": "Current assets / current liabilities. FMP /ratios-ttm.currentRatioTTM. Min=1 filters to liquid balance sheets."
+            "description": "Current assets / current liabilities. Min=1 filters to liquid balance sheets."
           },
           "days_since_last_earnings": {
             "anyOf": [
@@ -1952,7 +1956,7 @@
                 "type": "null"
               }
             ],
-            "description": "Days between the latest earnings_surprises.fiscal_date and today. max=14 \u2192 'reported in the last 2 weeks'. min=60 \u2192 'haven't reported in 60+ days' (typically pre-print window)."
+            "description": "Days between the latest reported quarter's fiscal date and today. max=14 \u2192 'reported in the last 2 weeks'. min=60 \u2192 'haven't reported in 60+ days' (typically pre-print window)."
           },
           "dcf_upside_pct": {
             "anyOf": [
@@ -1963,7 +1967,7 @@
                 "type": "null"
               }
             ],
-            "description": "(sf.dcf_intrinsic_value - last_close) / last_close. Positive = DCF says under-priced. min=0.10 = 'at least 10% upside to fair value'."
+            "description": "(DCF intrinsic value - last close) / last close. Positive = DCF says under-priced. min=0.10 = 'at least 10% upside to fair value'."
           },
           "debt_to_equity": {
             "anyOf": [
@@ -1974,7 +1978,7 @@
                 "type": "null"
               }
             ],
-            "description": "Total debt / equity ratio. FMP /ratios-ttm.debtToEquityRatioTTM. Higher = more leveraged."
+            "description": "Total debt / equity ratio. Higher = more leveraged."
           },
           "distance_from_52w_high_pct": {
             "anyOf": [
@@ -2019,7 +2023,7 @@
                 "type": "null"
               }
             ],
-            "description": "Trailing dividend yield as a fraction (0.03 = 3%). yfinance convention; non-payers have null and are excluded by any range bound."
+            "description": "Trailing dividend yield as a fraction (0.03 = 3%). Non-payers have null and are excluded by any range bound."
           },
           "earnings_beat_streak": {
             "anyOf": [
@@ -2041,7 +2045,7 @@
                 "type": "null"
               }
             ],
-            "description": "YoY earnings growth, fraction. stock_financials.earnings_growth."
+            "description": "YoY earnings growth, fraction."
           },
           "earnings_whisper": {
             "anyOf": [
@@ -2052,7 +2056,7 @@
                 "type": "null"
               }
             ],
-            "description": "Min whisper_score (0-100; higher = more likely to beat consensus). Source: ``earnings_whisper_cache`` table populated daily for tickers with upcoming earnings in the next 30 days. Tickers off the earnings cycle are excluded. Use min=70 for 'likely beat', min=55 for 'lean beat'."
+            "description": "Min whisper score (0-100; higher = more likely to beat consensus). Computed daily for tickers with upcoming earnings in the next 30 days; tickers off the earnings cycle are excluded. Use min=70 for 'likely beat', min=55 for 'lean beat'."
           },
           "eight_k_min_severity": {
             "anyOf": [
@@ -2077,7 +2081,7 @@
                 "type": "null"
               }
             ],
-            "description": "EXISTS at least one eight_k_filings row in the last N days. Combine with eight_k_min_severity to filter to material events only.",
+            "description": "At least one 8-K filing in the last N days. Combine with eight_k_min_severity to filter to material events only.",
             "title": "Eight K Within Days"
           },
           "enterprise_value": {
@@ -2162,7 +2166,7 @@
                 "type": "null"
               }
             ],
-            "description": "EV/EBITDA (stock_financials.ev_ebitda)."
+            "description": "EV/EBITDA."
           },
           "ev_to_sales": {
             "anyOf": [
@@ -2173,7 +2177,7 @@
                 "type": "null"
               }
             ],
-            "description": "EV / TTM revenue. Maps to sf.ev_revenue."
+            "description": "EV / TTM revenue."
           },
           "exchange": {
             "anyOf": [
@@ -2187,7 +2191,7 @@
                 "type": "null"
               }
             ],
-            "description": "Set match against company_profiles.exchange. Values are FMP's exchange short names ('NASDAQ', 'NYSE', 'AMEX', 'TSX', etc.).",
+            "description": "Exchange set match. Values are exchange short names ('NASDAQ', 'NYSE', 'AMEX', 'TSX', etc.).",
             "title": "Exchange"
           },
           "fcf_yield_pct": {
@@ -2199,7 +2203,7 @@
                 "type": "null"
               }
             ],
-            "description": "Free-cash-flow yield as a fraction (0.05 = 5%). Derived at query time as sf.free_cash_flow / NULLIF(sf.market_cap, 0); NULL when market_cap <= 0 (drops out of any bound). min=0 = 'FCF-yield positive'; min=0.05 = 'yield >= 5%'."
+            "description": "Free-cash-flow yield as a fraction (0.05 = 5%): free cash flow / market cap. NULL when market cap <= 0 (drops out of any bound). min=0 = 'FCF-yield positive'; min=0.05 = 'yield >= 5%'."
           },
           "float_shares": {
             "anyOf": [
@@ -2221,7 +2225,7 @@
                 "type": "null"
               }
             ],
-            "description": "Short interest as % of float (stored in percent units; 20 = 20%). min=20 'high'; min=30 'squeeze candidate'. stock_financials.float_short."
+            "description": "Short interest as % of float (in percent units; 20 = 20%). min=20 'high'; min=30 'squeeze candidate'."
           },
           "free_cash_flow": {
             "anyOf": [
@@ -2276,7 +2280,7 @@
                 "type": "null"
               }
             ],
-            "description": "False = screen common stock only (drop ETF/fund rows where stock_financials.is_etf is true). True or omitted = no security-type filter.",
+            "description": "False = screen common stock only (drop ETF/fund rows). True or omitted = no security-type filter.",
             "title": "Include Etfs"
           },
           "index_membership": {
@@ -2291,7 +2295,7 @@
                 "type": "null"
               }
             ],
-            "description": "Set match: ticker is currently a constituent of any of these indices. Values: 'sp500', 'nasdaq100', 'dow30'. Sourced from index_constituents (FMP nightly sync).",
+            "description": "Set match: ticker is currently a constituent of any of these indices. Values: 'sp500', 'nasdaq100', 'dow30'.",
             "title": "Index Membership"
           },
           "insider_buy_dollar_value_within_days": {
@@ -2303,7 +2307,7 @@
                 "type": "null"
               }
             ],
-            "description": "Sum of insider_trades.total_value for BUY transactions (transaction_type='BUY', not 10b5-1) over the last 90 days. Range bound in dollars. min=1_000_000 \u2192 'at least $1M of discretionary insider buying in the last quarter'. Window fixed at 90 days for now; can be parameterized if needed."
+            "description": "Total dollar value of discretionary insider BUYs (excludes 10b5-1 planned trades) over the last 90 days. Range bound in dollars. min=1_000_000 \u2192 'at least $1M of discretionary insider buying in the last quarter'. Window fixed at 90 days."
           },
           "insider_buys_within_days": {
             "anyOf": [
@@ -2316,7 +2320,7 @@
                 "type": "null"
               }
             ],
-            "description": "Include only tickers with at least one insider BUY in ``insider_trades`` filed in the last N days. Excludes 10b5-1 planned trades (lower-conviction signal). Capped at 365.",
+            "description": "Include only tickers with at least one insider BUY filed in the last N days. Excludes 10b5-1 planned trades (lower-conviction signal). Capped at 365.",
             "title": "Insider Buys Within Days"
           },
           "insider_ownership": {
@@ -2328,7 +2332,7 @@
                 "type": "null"
               }
             ],
-            "description": "Insider ownership as a fraction of float (0-1; FMP convention)."
+            "description": "Insider ownership as a fraction of float (0-1)."
           },
           "institutional_holders": {
             "anyOf": [
@@ -2339,7 +2343,7 @@
                 "type": "null"
               }
             ],
-            "description": "Min count of distinct 13F filers (CIKs) holding this ticker, sourced from whale_positions. Realistic range 0-29 in prod."
+            "description": "Min count of distinct 13F filers (CIKs) holding this ticker. Coverage spans roughly 35 tracked funds, so realistic values are 0-29."
           },
           "interest_coverage": {
             "anyOf": [
@@ -2361,7 +2365,7 @@
                 "type": "null"
               }
             ],
-            "description": "Max iv_change_pct (current ATM IV vs ~30 days ago, signed fraction). 0 -> 'IV declining or flat'; -0.05 -> 'IV down at least 5%'. Source: ``iv_summary`` table populated nightly from ``options_chain_snapshots``. Universe today is the ~14 tickers covered by the snapshot job (SPY, QQQ, mega-caps); tickers without IV data are excluded."
+            "description": "Max IV change (current ATM IV vs ~30 days ago, signed fraction). 0 -> 'IV declining or flat'; -0.05 -> 'IV down at least 5%'. IV coverage today is roughly 14 large tickers (SPY, QQQ, mega-caps); tickers without IV data are excluded."
           },
           "last_earnings_surprise_pct": {
             "anyOf": [
@@ -2372,7 +2376,7 @@
                 "type": "null"
               }
             ],
-            "description": "Most recent quarter's EPS surprise as a fraction (0.05 = 5% beat). Reads the latest earnings_surprises row per ticker via scalar subquery. NULL when no row exists (thinly-covered or fresh IPO) \u2192 drops out of any bound."
+            "description": "Most recent quarter's EPS surprise as a fraction (0.05 = 5% beat). NULL when no earnings history exists (thinly-covered or fresh IPO) \u2192 drops out of any bound."
           },
           "market_cap": {
             "anyOf": [
@@ -2393,7 +2397,7 @@
                 "type": "null"
               }
             ],
-            "description": "Net profit margin, fraction. Maps to stock_financials.profit_margin (yfinance/FMP naming convention)."
+            "description": "Net profit margin, fraction."
           },
           "news_keywords": {
             "anyOf": [
@@ -2407,7 +2411,7 @@
                 "type": "null"
               }
             ],
-            "description": "List of keywords. A ticker matches when at least one news headline in news_headlines.title (lowercased) contains any of the keywords, linked via news_ticker_map, within the trailing 14 days. Empty list = no filter.",
+            "description": "List of keywords. A ticker matches when at least one of its news headlines within the trailing 14 days contains any of the keywords (case-insensitive). Empty list = no filter.",
             "title": "News Keywords"
           },
           "operating_margin": {
@@ -2441,7 +2445,7 @@
                 "type": "null"
               }
             ],
-            "description": "Trailing P/E (stock_financials.pe_trailing). Negative-earnings names carry negative PE; constrain with min/max bounds to exclude them (e.g. min=0)."
+            "description": "Trailing P/E. Negative-earnings names carry negative PE; constrain with min/max bounds to exclude them (e.g. min=0)."
           },
           "peg_ratio": {
             "anyOf": [
@@ -2452,7 +2456,7 @@
                 "type": "null"
               }
             ],
-            "description": "PEG ratio (FMP /key-metrics-ttm.pegRatioTTM)."
+            "description": "Trailing PEG ratio."
           },
           "peg_ratio_forward": {
             "anyOf": [
@@ -2474,7 +2478,7 @@
                 "type": "null"
               }
             ],
-            "description": "Piotroski F-Score, integer 0-9. Higher = stronger fundamentals. Min=7 is the canonical 'strong' threshold. FMP /financial-scores."
+            "description": "Piotroski F-Score, integer 0-9. Higher = stronger fundamentals. Min=7 is the canonical 'strong' threshold."
           },
           "price": {
             "anyOf": [
@@ -2485,7 +2489,7 @@
                 "type": "null"
               }
             ],
-            "description": "Most recent close in dollars. price_derived_cache.last_close. Use min/max to constrain ('penny' = max 5, 'sub-100' = max 100)."
+            "description": "Most recent close in dollars. Use min/max to constrain ('penny' = max 5, 'sub-100' = max 100)."
           },
           "price_to_book": {
             "anyOf": [
@@ -2496,7 +2500,7 @@
                 "type": "null"
               }
             ],
-            "description": "Price/Book (stock_financials.pb_ratio)."
+            "description": "Price/Book ratio."
           },
           "price_to_fcf": {
             "anyOf": [
@@ -2518,7 +2522,7 @@
                 "type": "null"
               }
             ],
-            "description": "Price/Sales (stock_financials.ps_ratio)."
+            "description": "Price/Sales ratio."
           },
           "quick_ratio": {
             "anyOf": [
@@ -2529,7 +2533,7 @@
                 "type": "null"
               }
             ],
-            "description": "(Cash + receivables) / current liabilities. FMP /ratios-ttm.quickRatioTTM. Stricter liquidity than current ratio."
+            "description": "(Cash + receivables) / current liabilities. Stricter liquidity than current ratio."
           },
           "recent_filing_within_days": {
             "anyOf": [
@@ -2542,7 +2546,7 @@
                 "type": "null"
               }
             ],
-            "description": "EXISTS at least one recent SEC filing -- an 8-K (eight_k_filings) or a periodic 10-Q/10-K (sec_quarterly_filings) -- with filing_date in the last N days. Presence-only (>= 1 filing qualifies). Capped at 365.",
+            "description": "At least one recent SEC filing -- an 8-K or a periodic 10-Q/10-K -- filed in the last N days. Presence-only (>= 1 filing qualifies). Capped at 365.",
             "title": "Recent Filing Within Days"
           },
           "recommendation": {
@@ -2557,7 +2561,7 @@
                 "type": "null"
               }
             ],
-            "description": "Analyst recommendation set match. Values mirror yfinance / FMP labels: 'strong_buy', 'buy', 'hold', 'sell', 'strong_sell'. Empty list = no filter.",
+            "description": "Analyst recommendation set match. Values: 'strong_buy', 'buy', 'hold', 'sell', 'strong_sell'. Empty list = no filter.",
             "title": "Recommendation"
           },
           "relative_volume": {
@@ -2569,7 +2573,7 @@
                 "type": "null"
               }
             ],
-            "description": "Today's volume / trailing 30d average. min=1.5 'unusual' / min=3 'breakout'. stock_financials.relative_volume."
+            "description": "Today's volume / trailing 30d average. min=1.5 'unusual' / min=3 'breakout'."
           },
           "return_1m_pct": {
             "anyOf": [
@@ -2630,7 +2634,7 @@
                 "type": "null"
               }
             ],
-            "description": "YoY revenue growth, fraction. stock_financials.revenue_growth."
+            "description": "YoY revenue growth, fraction."
           },
           "revenue_growth_next_year_pct": {
             "anyOf": [
@@ -2674,7 +2678,7 @@
                 "type": "null"
               }
             ],
-            "description": "Return on invested capital, fraction. FMP /key-metrics-ttm.returnOnInvestedCapitalTTM."
+            "description": "Return on invested capital (TTM), fraction."
           },
           "rsi": {
             "anyOf": [
@@ -2685,7 +2689,7 @@
                 "type": "null"
               }
             ],
-            "description": "RSI(14) bound. Common values: max=30 'oversold'; min=70 'overbought'. stock_financials.rsi."
+            "description": "RSI(14) bound. Common values: max=30 'oversold'; min=70 'overbought'."
           },
           "sector": {
             "anyOf": [
@@ -2733,7 +2737,7 @@
                 "type": "null"
               }
             ],
-            "description": "(sf.target_mean_price - last_close) / last_close. Analyst consensus target relative to current price."
+            "description": "(analyst mean target - last close) / last close. Analyst consensus target relative to current price."
           },
           "upcoming_earnings_within_days": {
             "anyOf": [
@@ -2780,7 +2784,7 @@
                 "type": "null"
               }
             ],
-            "description": "Symbol allowlist applied as a server-side ``sf.symbol IN (...)`` WHERE clause -- the positive counterpart to exclude_symbols. Semantics are deliberately three-valued: ``None`` (the default) means no filter; a NON-empty list restricts to those symbols; an EMPTY list ``[]`` matches NOTHING (0 rows). The empty-list case is what makes 'held only' correct when the caller holds nothing -- it must return no rows, not the whole universe. The browser screener never sends this directly; the session route fills it when resolving ``portfolio_mode``.",
+            "description": "Symbol allowlist -- the positive counterpart to exclude_symbols. Semantics are deliberately three-valued: ``None`` (the default) means no filter; a NON-empty list restricts results to those symbols; an EMPTY list ``[]`` matches NOTHING (0 rows).",
             "title": "Include Symbols"
           },
           "limit": {
@@ -2812,7 +2816,7 @@
                 "type": "null"
               }
             ],
-            "description": "User-relative exposure scope. Resolved ONLY by the session-authenticated route (``POST /api/screener``), which looks up the caller's holdings / watchlist and rewrites this into include_symbols / exclude_symbols before the query runs. The public API-key route (``POST /api/v1/screener``) has no user and ignores this field (no filtering, no error).",
+            "description": "User-relative exposure scope, reserved for the session-authenticated Convexity app. The public API has no user context and ignores this field (no filtering, no error).",
             "title": "Portfolio Mode"
           },
           "sort_by": {
@@ -2871,7 +2875,7 @@
         "type": "object"
       },
       "ScreenerResultRow": {
-        "description": "One result row.\n\n``score`` is the convexity score percentile (0-100) -- the screener's\nprimary ranking signal regardless of sort_by. Vexa renders this as\nthe chip on each Discover card.\n\n``matched_criteria`` echoes back the names of criteria the request\nspecified that are actually applied server-side (excludes reserved\nfields). All criteria are AND-applied, so every result row matches\nevery applied criterion -- the list is identical across rows in v1\nand primarily useful for Vexa to render \"matched on: convexity, sector\".\n\nDisplay fields (Phase 1 of scanner migration, cache v8) -- populated\nfrom the LEFT JOIN to stock_financials + company_profiles so the\nAdvancedScreener2 table can render directly off the response without\na per-row /financials/snapshot fan-out. Every display field is\nnullable: tickers without a stock_financials row render with \"--\".\nCurrent price + SMA/52w distance deferred to Phase 3 (need a quote\nstore join).",
+        "description": "One result row.\n\n``score`` is the convexity score percentile (0-100) -- the screener's\nprimary ranking signal regardless of sort_by.\n\n``matched_criteria`` echoes back the names of criteria the request\nspecified that are actually applied server-side (excludes reserved\nfields). All criteria are AND-applied, so every result row matches\nevery applied criterion -- the list is identical across rows in v1\nand primarily useful for rendering \"matched on: convexity, sector\".\n\nDisplay fields are populated so a results table can render directly\noff the response without per-symbol follow-up calls. Every display\nfield is nullable: thinly-covered tickers carry nulls.",
         "properties": {
           "altman_z_score": {
             "anyOf": [
@@ -3682,7 +3686,7 @@
         "type": "object"
       },
       "SectorDistributionPercentiles": {
-        "description": "Quartile/percentile cuts of the sector cohort's convexity_spy values.",
+        "description": "Quartile/percentile cuts of the sector cohort's scores.",
         "properties": {
           "p25": {
             "anyOf": [
@@ -3733,7 +3737,7 @@
         "type": "object"
       },
       "SectorDistributionSummary": {
-        "description": "Aggregated distribution summary for the Vexa donut-ring surface.\n\nDifferent shape from the per-row ``SectorDistributionRow`` list returned\nby the internal route - Vexa's UI doesn't need the full cohort, just\nwhere this ticker sits within it.\n\nTwo readings live side by side here at v3.0:\n\n- ``ticker_percentile`` is the **universe rank** (0-100) sourced from\n  ``convexity_scores.ridge_score_pct``. This is the headline number the\n  methodology page talks about - a 75 means \"higher predicted forward\n  return than 75% of the universe.\"\n- ``sector_distribution`` (p25 / p50 / p75 / p90) and ``ticker_score``\n  are **sector-cohort context**. Quartile cuts of the raw ridge_score\n  values within the ticker's GICS-sector peer group, plus this ticker's\n  raw score. Useful for \"your ticker sits at +0.04 vs sector median\n  of +0.01\" framing alongside the universe rank.\n\nBoth readings come from the same nightly run. v1/v2 historical reads\n(via ?formula_version=v2) fall back to convexity_spy + score_spy_pct.",
+        "description": "Aggregated sector-distribution summary for one ticker.\n\nTwo readings live side by side here at v3.0:\n\n- ``ticker_percentile`` is the **universe rank** (0-100). This is the\n  headline number the methodology page talks about - a 75 means\n  \"higher predicted forward return than 75% of the universe.\"\n- ``sector_distribution`` (p25 / p50 / p75 / p90) and ``ticker_score``\n  are **sector-cohort context**. Quartile cuts of the raw score\n  values within the ticker's GICS-sector peer group, plus this ticker's\n  raw score. Useful for \"your ticker sits at +0.04 vs sector median\n  of +0.01\" framing alongside the universe rank.\n\nBoth readings come from the same nightly run. v1/v2 historical reads\n(via ?formula_version=v2) fall back to the capture-ratio score and its\npercentile.",
         "properties": {
           "sector": {
             "anyOf": [
@@ -3773,7 +3777,7 @@
                 "type": "null"
               }
             ],
-            "description": "Universe-rank percentile (0-100). v3.0 sources from ridge_score_pct; v1/v2 historical reads source from score_spy_pct. No recomputation in the route - the value comes straight from convexity_scores.",
+            "description": "Universe-rank percentile (0-100). Matches ``ridge_score_pct`` on the score endpoint for v3.0 rows; v1/v2 historical reads fall back to the SPY-flavor percentile.",
             "title": "Ticker Percentile"
           },
           "ticker_score": {
@@ -3785,7 +3789,7 @@
                 "type": "null"
               }
             ],
-            "description": "Raw score for this ticker. v3.0: ridge_score in z-score-of-forward-return units. v1/v2: convexity_spy in roughly [-1, +1].",
+            "description": "Raw score for this ticker. v3.0: ridge_score in z-score-of-forward-return units. v1/v2: the SPY-flavor capture-ratio score in roughly [-1, +1].",
             "title": "Ticker Score"
           }
         },
@@ -3880,7 +3884,7 @@
                 "type": "null"
               }
             ],
-            "description": "Pre-market (bmo), post-market (amc), or unconfirmed (tbd). Map from earnings_calendar.time_of_day where 'BMO'\u2192bmo, 'AMC'\u2192amc, and anything else (TAS, '', etc.) \u2192 tbd.",
+            "description": "Pre-market (bmo), post-market (amc), or unconfirmed (tbd).",
             "title": "Time"
           }
         },
@@ -4057,14 +4061,10 @@
       }
     },
     "securitySchemes": {
-      "OAuth2PasswordBearer": {
-        "flows": {
-          "password": {
-            "scopes": {},
-            "tokenUrl": "/api/auth/login"
-          }
-        },
-        "type": "oauth2"
+      "ApiKeyBearer": {
+        "description": "API key sent as 'Authorization: Bearer <key>'. Mint keys at https://convexityos.com/settings/developer; each key carries the scopes named in the endpoint descriptions.",
+        "scheme": "bearer",
+        "type": "http"
       }
     }
   },
@@ -4077,7 +4077,7 @@
   "paths": {
     "/api/v1/convexity-score/portfolio": {
       "post": {
-        "description": "Compute the portfolio's aggregate convexity score (-100..+100).\n\nCache key includes the API-key owner ID + sorted holdings + day\nbucket; identical requests on the same day return ``meta.source:\n\"cached\"``. The portfolio endpoint counts as one call against the\nVexa key's quota even though it fans out N per-ticker reads\ninternally -- the fan-out goes straight to the service-layer query\nand skips the rate-limit middleware.",
+        "description": "Compute the portfolio's aggregate convexity score (-100..+100).\n\nScores are cached per account for the trading day: identical\nrequests on the same day return ``meta.source: \"cached\"``. Counts as\none call against the API key's quota regardless of portfolio size;\nholdings are capped at 500 positions per request (422 above the cap).",
         "operationId": "post_portfolio_score_api_v1_convexity_score_portfolio_post",
         "parameters": [
           {
@@ -4222,7 +4222,7 @@
     },
     "/api/v1/convexity-score/{ticker}/distribution": {
       "get": {
-        "description": "Sector cohort distribution summary (Vexa \u00a717.11 Convexity Distribution).\n\nDifferent shape from the internal /api/convexity-score/{ticker}/distribution\nroute -- that one returns the full member list (used by the Convexity\nfrontend's mini-distribution chart). This v1 surface returns the\naggregated summary Vexa needs for the donut-ring visualization:\nticker's score, cohort quartiles, ticker's percentile rank, cohort size.\n\nEmpty/null fields when the ticker isn't sector-mapped or the cohort\nis too small to have a meaningful distribution. Never 4xx -- same\ncontract-compliant empty-data behavior as the score endpoint.",
+        "description": "Sector cohort distribution summary for one ticker: the ticker's\nscore, cohort quartiles, its percentile rank, and the cohort size.\n\nEmpty/null fields when the ticker isn't sector-mapped or the cohort\nis too small to have a meaningful distribution. Never 4xx -- same\ncontract-compliant empty-data behavior as the score endpoint.",
         "operationId": "get_sector_distribution_api_v1_convexity_score__ticker__distribution_get",
         "parameters": [
           {
@@ -4302,7 +4302,7 @@
     },
     "/api/v1/event/{ticker}": {
       "get": {
-        "description": "Upcoming earnings + last-N-quarter actuals/estimates.\n\nReturns 404 only when the ticker is genuinely unknown (no rows in\nearnings_calendar AND existence-check quote returns price=null).\nTickers that exist but have no upcoming earnings \u2192 200 with\n``upcoming_earnings: null``.",
+        "description": "Upcoming earnings + last-N-quarter actuals/estimates.\n\nReturns 404 only when the ticker is genuinely unknown to every\nsource. Tickers that exist but have no upcoming earnings \u2192 200 with\n``upcoming_earnings: null``.",
         "operationId": "get_event_api_v1_event__ticker__get",
         "parameters": [
           {
@@ -4708,7 +4708,7 @@
     },
     "/api/v1/portfolio/history": {
       "post": {
-        "description": "Portfolio aggregate P/L history. Body: ``{holdings: [...], range}``.\n\nFan-out to per-ticker history is parallel via asyncio.gather and\ncounts as one call against the API key's rate-limit quota -- same\nposture as the portfolio score endpoint. Cache key includes the\nsorted (symbol, shares) tuples so identical portfolios share a slot.",
+        "description": "Portfolio aggregate P/L history. Body: ``{holdings: [...], range}``.\n\nCounts as one call against the API key's rate-limit quota regardless\nof portfolio size; holdings are capped at 500 positions per request\n(422 above the cap). Identical portfolios over the same range may be\nserved from cache.",
         "operationId": "post_portfolio_history_api_v1_portfolio_history_post",
         "parameters": [
           {
@@ -4770,7 +4770,7 @@
     },
     "/api/v1/quote/batch": {
       "post": {
-        "description": "Batch quote endpoint. 25-symbol cap enforced in-route so an\noversized request returns 400 (per spec), not Pydantic's default 422.\n\nResponse is a map keyed by symbol. Symbols upstream couldn't resolve\nare still present in the map with ``price=None`` -- Vexa renders\na placeholder cell rather than a \"missing\" lookup.\n\nCounts as one call against the API key's rate-limit quota even\nthough it fans out to N upstream queries; the fan-out goes through\nthe service layer, not the HTTP route.",
+        "description": "Batch quotes for up to 25 symbols. Oversized requests return 400\nwith error ``batch_too_large``.\n\nResponse is a map keyed by symbol. Symbols that fail to resolve are\nstill present in the map with ``price=null``, so every requested\nsymbol can be rendered without a separate lookup.\n\nCounts as one call against the API key's rate-limit quota regardless\nof batch size.",
         "operationId": "post_batch_quotes_api_v1_quote_batch_post",
         "parameters": [
           {
@@ -4831,7 +4831,7 @@
     },
     "/api/v1/quote/history/{ticker}": {
       "get": {
-        "description": "OHLCV history for one ticker. Cache-warmed; tiered TTL by range\n(5min for 1D/1W during market hours, 1h for 1M-YTD, 24h for 1Y+).",
+        "description": "OHLCV history for one ticker. Responses may be served from cache;\nfreshness is tiered by range (about 5 minutes for 1D/1W during market\nhours, 1 hour for 1M-YTD, 24 hours for 1Y and longer).",
         "operationId": "get_history_api_v1_quote_history__ticker__get",
         "parameters": [
           {
@@ -4844,13 +4844,13 @@
             }
           },
           {
-            "description": "Timeframe: 1D | 1W | 1M | 3M | YTD | 1Y | 2Y | ALL. Matches Vexa's chart timeframe selector.",
+            "description": "Timeframe: 1D | 1W | 1M | 3M | YTD | 1Y | 2Y | ALL.",
             "in": "query",
             "name": "range",
             "required": false,
             "schema": {
               "default": "1M",
-              "description": "Timeframe: 1D | 1W | 1M | 3M | YTD | 1Y | 2Y | ALL. Matches Vexa's chart timeframe selector.",
+              "description": "Timeframe: 1D | 1W | 1M | 3M | YTD | 1Y | 2Y | ALL.",
               "title": "Range",
               "type": "string"
             }
@@ -4982,7 +4982,7 @@
     },
     "/api/v1/reference/{ticker}": {
       "get": {
-        "description": "Per-ticker reference data. 404 only when the ticker is genuinely\nunknown to every source -- partial coverage returns 200 with nulls.\n\nCounts as one call against the API key's rate-limit quota even though\nthe implementation fans out to multiple internal data sources.",
+        "description": "Per-ticker reference data. 404 only when the ticker is genuinely\nunknown to every source -- partial coverage returns 200 with nulls.\n\nCounts as one call against the API key's rate-limit quota.",
         "operationId": "get_reference_data_api_v1_reference__ticker__get",
         "parameters": [
           {
@@ -5042,7 +5042,7 @@
     },
     "/api/v1/related/{ticker}": {
       "get": {
-        "description": "Related tickers (peers, sector members, supply-chain edges).\n\nEmpty ``related: []`` is the contract-compliant response when no\nsource has anything for the ticker -- never a 404. Vexa hydrates\nname + price + day change via ``/api/v1/quote/batch`` for each\nreturned symbol.",
+        "description": "Related tickers (peers, sector members, supply-chain edges).\n\nEmpty ``related: []`` is the contract-compliant response when no\nsource has anything for the ticker -- never a 404. Entries carry\nonly the symbol plus relation metadata; hydrate names and prices via\n``/api/v1/quote/batch``.",
         "operationId": "get_related_api_v1_related__ticker__get",
         "parameters": [
           {
@@ -5126,7 +5126,7 @@
     },
     "/api/v1/screener": {
       "post": {
-        "description": "Run the screener with the given criteria.\n\nCache: 6h Redis TTL keyed on the canonical request hash. Same body\ntwice within 6h returns ``meta.source: \"screener_v1_cached\"``.\n\nCounts as one call against the API key's rate-limit quota even\nthough the underlying SQL touches up to 4 tables.",
+        "description": "Run the screener with the given criteria.\n\nResults may be cached for up to 6 hours: the same body within that\nwindow returns ``meta.source: \"screener_v1_cached\"``.\n\nCounts as one call against the API key's rate-limit quota.",
         "operationId": "post_screener_api_v1_screener_post",
         "parameters": [
           {
@@ -5651,6 +5651,11 @@
       }
     }
   },
+  "security": [
+    {
+      "ApiKeyBearer": []
+    }
+  ],
   "servers": [
     {
       "url": "https://convexityos.com"
