@@ -137,6 +137,11 @@ Set `CONVEXITY_API_KEY` to a minted key, then:
 
 - [`sdk/typescript/`](sdk/typescript/) - Zero-dependency typed TypeScript client covering all 22 REST paths (25 operations) with `DataEnvelope<T>` freshness helpers and contract tests verified against `openapi.json`
 
+## Python SDK, CLI & Agent Evals
+
+- [`sdk/python/`](sdk/python/) - Zero-dependency Python 3.11+ SDK and `convexity_sdk` CLI covering all 22 REST paths (25 operations) with `DataEnvelope` freshness assertions (`--strict-freshness`) and OpenAPI contract tests
+- [`evals/`](evals/) - Offline Agent Provenance & Freshness Eval Harness testing `data_as_of` citations, `data: null` handling, stale/failed fail-closed behavior, and observational portfolio boundaries
+
 ## Codegen
 
 Point any OpenAPI generator at the live schema URL or at the pinned [`openapi.json`](openapi.json). The snapshot is refreshed with `python scripts/refresh_spec.py`, which prunes the schema to the public contract and writes stable-sorted JSON, so the commit history of `openapi.json` doubles as a machine-readable API diff log. Human-readable changes: [`CHANGELOG.md`](CHANGELOG.md).
