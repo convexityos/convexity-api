@@ -1,0 +1,114 @@
+{
+  "schema_version": "am-mcp-pricing-v1",
+  "description": "Reference am/1 Agent Mandate tool pricing and effect catalog for the Convexity MCP server (https://convexityos.com/api/v1/mcp). Amounts are internal budget weights for agent-side mandate enforcement; plan quotas are governed by GET /api/v1/limits. Any tool not listed here must fail closed.",
+  "tools": [
+    {
+      "server": "convexity",
+      "tool": "get_quote",
+      "scope": "quote:read",
+      "resource_uri": "https://convexityos.com/api/v1/mcp/get_quote",
+      "amount": { "cur": "USD", "amt": "0.001" },
+      "effect": "read",
+      "purpose": "market.research"
+    },
+    {
+      "server": "convexity",
+      "tool": "get_price_history",
+      "scope": "quote:read",
+      "resource_uri": "https://convexityos.com/api/v1/mcp/get_price_history",
+      "amount": { "cur": "USD", "amt": "0.002" },
+      "effect": "read",
+      "purpose": "market.research"
+    },
+    {
+      "server": "convexity",
+      "tool": "get_convexity_score",
+      "scope": "score:read",
+      "resource_uri": "https://convexityos.com/api/v1/mcp/get_convexity_score",
+      "amount": { "cur": "USD", "amt": "0.005" },
+      "effect": "read",
+      "purpose": "market.research"
+    },
+    {
+      "server": "convexity",
+      "tool": "get_company_reference",
+      "scope": "data:read",
+      "resource_uri": "https://convexityos.com/api/v1/mcp/get_company_reference",
+      "amount": { "cur": "USD", "amt": "0.002" },
+      "effect": "read",
+      "purpose": "market.research"
+    },
+    {
+      "server": "convexity",
+      "tool": "run_screener",
+      "scope": "data:read",
+      "resource_uri": "https://convexityos.com/api/v1/mcp/run_screener",
+      "amount": { "cur": "USD", "amt": "0.010" },
+      "effect": "read",
+      "purpose": "market.research"
+    },
+    {
+      "server": "convexity",
+      "tool": "get_company_events",
+      "scope": "data:read",
+      "resource_uri": "https://convexityos.com/api/v1/mcp/get_company_events",
+      "amount": { "cur": "USD", "amt": "0.002" },
+      "effect": "read",
+      "purpose": "market.research"
+    },
+    {
+      "server": "convexity",
+      "tool": "get_related_companies",
+      "scope": "data:read",
+      "resource_uri": "https://convexityos.com/api/v1/mcp/get_related_companies",
+      "amount": { "cur": "USD", "amt": "0.002" },
+      "effect": "read",
+      "purpose": "market.research"
+    },
+    {
+      "server": "convexity",
+      "tool": "get_portfolio",
+      "scope": "portfolio:read",
+      "resource_uri": "https://convexityos.com/api/v1/mcp/get_portfolio",
+      "amount": { "cur": "USD", "amt": "0.002" },
+      "effect": "read",
+      "purpose": "portfolio.observe"
+    },
+    {
+      "server": "convexity",
+      "tool": "get_tax_lots",
+      "scope": "portfolio:read",
+      "resource_uri": "https://convexityos.com/api/v1/mcp/get_tax_lots",
+      "amount": { "cur": "USD", "amt": "0.003" },
+      "effect": "read",
+      "purpose": "portfolio.observe"
+    },
+    {
+      "server": "convexity",
+      "tool": "get_signals",
+      "scope": "portfolio:read",
+      "resource_uri": "https://convexityos.com/api/v1/mcp/get_signals",
+      "amount": { "cur": "USD", "amt": "0.005" },
+      "effect": "read",
+      "purpose": "portfolio.observe"
+    },
+    {
+      "server": "convexity",
+      "tool": "get_position",
+      "scope": "portfolio:read",
+      "resource_uri": "https://convexityos.com/api/v1/mcp/get_position",
+      "amount": { "cur": "USD", "amt": "0.002" },
+      "effect": "read",
+      "purpose": "portfolio.observe"
+    },
+    {
+      "server": "convexity",
+      "tool": "run_copilot_play",
+      "scope": "portfolio:read",
+      "resource_uri": "https://convexityos.com/api/v1/mcp/run_copilot_play",
+      "amount": { "cur": "USD", "amt": "0.025" },
+      "effect": "read",
+      "purpose": "portfolio.observe"
+    }
+  ]
+}
