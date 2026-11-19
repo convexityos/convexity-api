@@ -132,6 +132,10 @@ Set `CONVEXITY_API_KEY` to a minted key, then:
 - [`examples/python/quickstart.py`](examples/python/quickstart.py) - Python, stdlib only
 - [`examples/typescript/quickstart.ts`](examples/typescript/quickstart.ts) - TypeScript, Node 18+, no dependencies
 
+## Typed SDK
+
+- [`sdk/typescript/`](sdk/typescript/) - Zero-dependency typed TypeScript client covering all 22 REST paths (25 operations) with `DataEnvelope<T>` freshness helpers and contract tests verified against `openapi.json`
+
 ## Codegen
 
 Point any OpenAPI generator at the live schema URL or at the pinned [`openapi.json`](openapi.json). The snapshot is refreshed with `python scripts/refresh_spec.py`, which prunes the schema to the public contract and writes stable-sorted JSON, so the commit history of `openapi.json` doubles as a machine-readable API diff log. Human-readable changes: [`CHANGELOG.md`](CHANGELOG.md).
