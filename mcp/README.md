@@ -55,6 +55,12 @@ Twelve tools, all read-only. Market-data tools need the matching scope on your k
 - **Envelopes:** tool results are full `DataEnvelope`s (`data` plus `meta`), so your agent sees `data_as_of` and `sync_status` and can cite freshness instead of guessing.
 - **Scope failures** are returned as in-band tool errors (`isError: true`) naming the missing scope, not transport-level 403s, so an LLM client can read the message and tell its user which scope to mint.
 
+## Mandated agents (`am/1`)
+
+[`mandate-pricing.json`](mandate-pricing.json) publishes a machine-readable `am-mcp-pricing-v1` catalog covering all twelve Convexity MCP tools with canonical resource URIs (`https://convexityos.com/api/v1/mcp/<tool>`), `effect: "read"` classifications, purpose tags (`market.research` or `portfolio.observe`), and reference per-call USD weights for [`agent-mandate`](https://github.com/convexityos/agent-mandate) budget enforcement. Amounts are internal budget weights for agent-side spend caps; plan quota consumption is always governed by `GET /api/v1/limits`.
+
+The file loads directly into both `vitna-code`'s Rust `vitna_mcp::ToolPricingCatalog::from_json_str` and the zero-dependency TypeScript quickstart in [`../examples/mandated-agent/`](../examples/mandated-agent/).
+
 ## Registry manifest
 
 [`server.json`](server.json) is the manifest for the [MCP registry](https://registry.modelcontextprotocol.io) (format retrieved 2026-07-11 from the modelcontextprotocol/registry reference docs). Before publishing:

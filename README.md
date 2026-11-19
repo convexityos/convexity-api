@@ -131,6 +131,7 @@ Set `CONVEXITY_API_KEY` to a minted key, then:
 - [`examples/quickstart.sh`](examples/quickstart.sh) - curl
 - [`examples/python/quickstart.py`](examples/python/quickstart.py) - Python, stdlib only
 - [`examples/typescript/quickstart.ts`](examples/typescript/quickstart.ts) - TypeScript, Node 18+, no dependencies
+- [`examples/mandated-agent/`](examples/mandated-agent/) - Delegated `am/1` Agent Mandate guard over Convexity MCP using [`mcp/mandate-pricing.json`](mcp/mandate-pricing.json) (Node 22.6+, no dependencies)
 
 ## Codegen
 
